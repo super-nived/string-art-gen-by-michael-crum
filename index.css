@@ -27,11 +27,13 @@ svg {
 
 img {
     display: inline-block;
-    width: 20%;
-    height: auto;
+    width: 20vw;
+    height: 20vw;
     border: 1px solid white;
 }
 
 canvas {
+    width: 20vw;
+    height: 20vw;
     border: 1px solid white;
 }

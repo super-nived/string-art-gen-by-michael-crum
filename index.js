@@ -1,8 +1,74 @@
-// Hide UI if query param is present
-const urlParams = new URLSearchParams(window.location.search);
-if (urlParams.get("showUI") === "false") {
-    document.getElementById("ui").style.display = "none";
+/**
+ * IMAGE PROCESSING
+ */
+
+//These get transposed in the code, which is why the might look unintuitive
+let sobel_dy_kernel = [
+    [-1, 0, 1],
+    [-2, 0, 2],
+    [-1, 0, 1]
+];
+
+let sobel_dx_kernel = [
+    [1, 2, 1],
+    [0, 0, 0],
+    [-1, -2, -1]
+];
+
+function constrain(val, min, max) {
+    return val < min ? min : (val > max ? max : val); // ew 
 }
+
+// https://gist.github.com/xposedbones/75ebaef3c10060a3ee3b246166caab56
+const map = (value, x1, y1, x2, y2) => (value - x1) * (y2 - x2) / (y1 - x1) + x2;
+
+// Based on Dan Shiffman's implementation of convolution (https://p5js.org/examples/image-convolution.html)
+// Edited to port to my implementation
+
+function convolve(kernel, img) {
+    let copy = img.data.slice();
+    for (var x = 0; x < img.width; x++) {
+        for (var y = 0; y < img.height; y++) {
+            let loc = (x + y * img.width) * 4;
+            let pixel = convolve_pixel(x, y, kernel, img);
+            copy[loc] = pixel[0];
+            copy[loc + 1] = pixel[1];
+            copy[loc + 2] = pixel[2];
+        }
+    }
+    return copy;
+}
+
+function convolve_pixel(x, y, kernel, img) {
+    let matrixsize = kernel.length;
+    let rtotal = 0.0;
+    let gtotal = 0.0;
+    let btotal = 0.0;
+    const offset = Math.floor(matrixsize / 2);
+    for (let i = 0; i < matrixsize; i++) {
+        for (let j = 0; j < matrixsize; j++) {
+            // What pixel are we testing
+            const xloc = x + i - offset;
+            const yloc = y + j - offset;
+            let loc = (xloc + img.width * yloc) * 4;
+
+            // Make sure we haven't walked off our image, we could do better here
+            loc = constrain(loc, 0, img.data.length - 1);
+
+            // Calculate the convolution
+            // retrieve RGB values
+            rtotal += img.data[loc] * kernel[i][j];
+            gtotal += img.data[loc + 1] * kernel[i][j];
+            btotal += img.data[loc + 2] * kernel[i][j];
+        }
+    }
+    // Return the resulting color
+    return [rtotal, gtotal, btotal];
+}
+
+/**
+ * GRAPHING
+ */
 
 // Create the graph
 let graph = {
@@ -13,7 +79,7 @@ let graph = {
 
         this.num_nails = 200;
         this.thread_diam = 0.01; // thread width in inches
-        this.nail_diam = 0.05;
+        this.nail_diam = 0.1;
 
         this.svg = d3.select("body").append("svg")
             .attr("width", "100vw")
@@ -34,7 +100,7 @@ let graph = {
         let frame_path = this.svg.append("g")
             .append("rect")
             .attr("width", this.radius * 2)
-            .attr("height", this.radius * 4)
+            .attr("height", this.radius * 2)
             .attr("x", -this.radius)
             .attr("y", -this.radius)
             .style("stroke", "#ffbe5700")
@@ -83,7 +149,6 @@ let graph = {
         let string_order = [];
 
 
-
         for (var i = 0; i < 1000; i++) {
             string_order.push(Math.floor(Math.random() * this.num_nails))
         }
@@ -109,20 +174,38 @@ input.addEventListener("change", function () {
             const canvas = document.getElementById("test");
             const ctx = canvas.getContext('2d');
 
+            // Bunch of sloppy logic to resize the image / canvas to play nice with the frame bounding box.
+            // The image is centered and scaled to fill the frame.
             const max_res = 500;
             let frame_ar = graph.frame_bb.width / graph.frame_bb.height;
-            canvas.width = frame_ar > 1 ? max_res : (img.height / max_res) * img.width;
-            canvas.height = frame_ar < 1 ? max_res : (img.width / max_res) * img.height;
             let img_ar = img.width / img.height;
-            ctx.drawImage(img, - (img.width - canvas.width) / 2, - (img.width - canvas.width) / 2, img.width, img.height);
+            canvas.width = frame_ar >= 1 ? max_res : max_res * frame_ar;
+            canvas.height = frame_ar < 1 ? max_res : max_res / frame_ar;
+            let w = frame_ar >= img_ar ? canvas.width : canvas.height * img_ar;
+            let h = frame_ar < img_ar ? canvas.height : canvas.width / img_ar;
+            ctx.drawImage(img, - (w - canvas.width) / 2, - (h - canvas.height) / 2, w, h);
             const rgba = ctx.getImageData(
-                0, 0, img.width, img.height
+                - (w - canvas.width) / 2, - (h - canvas.height) / 2, w, h
             );
+            console.log(rgba.width);
+            const scratch = convolve(sobel_dx_kernel, rgba);
+
+            rgba.data.set(scratch);
+            ctx.putImageData(rgba, -(w - canvas.width) / 2, -(h - canvas.height) / 2);
             graph.update(rgba.data);
-            console.log(rgba.data);
         }
     }
 })
+
+/**
+ * MISC
+ */
+
+// Hide UI if query param is present
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get("showUI") === "false") {
+    document.getElementById("ui").style.display = "none";
+}
 
 // Handle zooming and panning
 let zoom = d3.zoom().on('zoom', handleZoom);
