@@ -1,0 +1,21 @@
+// let frame_path = svg.append("g")
+//     .append("rect")
+//     .attr("width", radius * 2)
+//     .attr("height", radius * 2)
+//     .attr("x", -radius)
+//     .attr("y", -radius)
+//     .style("stroke", "#ffbe573F")
+//     .style("stroke-width", "10px")
+//     .style("fill", "none")
+
+// let circ_path = svg.append("path")
+//     .data([[
+//         [0, height / 2],
+//         [width / 2, 0],
+//         [width, height / 2],
+//         [width / 2, height]
+//     ]])
+//     .attr("d", `M ${width / 2 - radius * 3}, ${height / 2 - radius * 2} a ${radius}, ${radius} 0 1, 0 ${radius * 2}, 0 a ${radius}, ${radius} 0 1, 0 -${radius * 2}, 0`)
+//     .style("stroke", "black")
+//     .style("stroke-width", "2px")
+//     .style("fill", "none")
