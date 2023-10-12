@@ -26,3 +26,24 @@ for (var i = 0; i < rgba.data.length; i += 4) {
                 rgba.data[i + 1] = g;
                 rgba.data[i + 2] = g;
             }
+
+        let scratch2 = [];
+            for (var i = 0; i < grad_mag.length; i++) {
+                scratch2.push(grad_mag[i]);
+                scratch2.push(grad_mag[i]);
+                scratch2.push(grad_mag[i]);
+                scratch2.push(255);
+            }
+            rgba.data.set(scratch2);
+
+let scratch = convolve(sobel_dx_kernel, rgba);
+            rgba.data.set(scratch);
+            let grad_mag = gradient_mag(rgba);
+            let scratch2 = [];
+            for (var i = 0; i < grad_mag.length; i++) {
+                scratch2.push(grad_mag[i]);
+                scratch2.push(grad_mag[i]);
+                scratch2.push(grad_mag[i]);
+                scratch2.push(255);
+            }
+            rgba.data.set(scratch2);

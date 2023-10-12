@@ -66,9 +66,44 @@ function convolve_pixel(x, y, kernel, img) {
     return [rtotal, gtotal, btotal];
 }
 
+// Return the gradient magnitude image
+function gradient_mag(img) {
+    let ret = [];
+    for (var y = 0; y < img.height; y++) {
+        for (var x = 0; x < img.width; x++) {
+            let loc = (x + y * img.width) * 4;
+            let r = img.data[loc] ** 2;
+            let g = img.data[loc + 1] ** 2;
+            let b = img.data[loc + 2] ** 2;
+            ret.push(Math.sqrt(r + g + b));
+        }
+    }
+    return ret;
+}
+
 /**
  * GRAPHING
  */
+
+let point = {
+    point(x, y) {
+        this.x = x;
+        this.y = y;
+    }
+}
+
+let line = {
+    line(start, end) {
+        this.start = start;
+        this.end = end;
+    },
+
+    point_at(per) {
+        let dx = this.end.x - this.start.x;
+        let dy = this.end.y - this.start.y;
+        return point(this.start.x + per * dx, this.start.y + per * dy);
+    }
+}
 
 // Create the graph
 let graph = {
@@ -131,11 +166,15 @@ let graph = {
             .attr("fill", "aqua");
 
         if (!pixels) return;
-        let string_order = this.parse_image(pixels);
+        string_order = this.parse_image(pixels);
         let nail_order = string_order.map((num) => nails_pos[num]);
         let strings = this.svg.select("g")
+            .selectAll("strings")
+            .data([nail_order]);
+        strings.enter()
             .append("path")
-            .data([nail_order])
+            .attr("class", "strings")
+            .merge(strings)
             .attr("d", d3.line(d => d.x, d => d.y))
             .style("stroke", "white")
             .style("stroke-width", this.thread_diam)
@@ -144,9 +183,35 @@ let graph = {
         this.svg.selectAll("g circle.nail").raise();
     },
 
+    get_complete_graph(nail_pos) {
+        let ret = [];
+        for (var a = 0; a < this.num_nails - 1; a++) {
+            for (var b = a + 1; b < this.num_nails; b++) {
+                ret.push([nails_pos[a], nails_pos[b]]);
+            }
+        }
+        return ret;
+    },
+
+    get_chord_weight(image, start, end) {
+
+        return 1.0;
+    },
+
+    point_along_line() {
+
+    },
+
+    svg_to_image_coord(x, y) {
+
+    },
+
     // Generates a nail order from pixel data
     parse_image(pixels) {
         let string_order = [];
+
+        let chord_weights = {};
+
 
 
         for (var i = 0; i < 1000; i++) {
@@ -187,12 +252,17 @@ input.addEventListener("change", function () {
             const rgba = ctx.getImageData(
                 - (w - canvas.width) / 2, - (h - canvas.height) / 2, w, h
             );
-            console.log(rgba.width);
-            const scratch = convolve(sobel_dx_kernel, rgba);
+            let grayscale = [];
+            for (var i = 0; i < rgba.data.length; i += 4) {
+                let g = 0.299 * rgba.data[i] + 0.587 * rgba.data[i + 1] + 0.114 * rgba.data[i + 2];
+                rgba.data[i] = g;
+                rgba.data[i + 1] = g;
+                rgba.data[i + 2] = g;
+                grayscale.push(g);
+            }
 
-            rgba.data.set(scratch);
             ctx.putImageData(rgba, -(w - canvas.width) / 2, -(h - canvas.height) / 2);
-            graph.update(rgba.data);
+            graph.update(grayscale);
         }
     }
 })
