@@ -103,7 +103,7 @@ class Image {
             this.channels["y"][y][x] = cmyk.y;
             this.channels["k"][y][x] = cmyk.k;
 
-            this.channels["white"][y][x] = 0.299 * this.data[i] + 0.587 * this.data[i + 1] + 0.114 * this.data[i + 2];
+            this.channels["white"][y][x] = (0.299 * this.data[i] + 0.587 * this.data[i + 1] + 0.114 * this.data[i + 2]) / 255;
         }
     }
     // Convert from SVG coords into pixels
@@ -111,19 +111,6 @@ class Image {
         let x = Math.floor(map(svg_point.x, bounding_box.x, bounding_box.x + bounding_box.width, 0, this.width - 1));
         let y = Math.floor(map(svg_point.y, bounding_box.y, bounding_box.y + bounding_box.height, 0, this.height - 1));
         return new Point(x, y);
-    };
-    // Get pixels color average
-    get_pixel_weight(point, weight_func) {
-        let loc = (point.x + point.y * this.width) * 4;
-        return weight_func(new Color(this.data[loc], this.data[loc + 1], this.data[loc + 2], this.data[loc + 3]));
-    };
-    // Clear pixel (set it to transparent)
-    clear_pixel(point) {
-        let loc = (point.x + point.y * this.width) * 4;
-        this.data[loc] = 0.0;
-        this.data[loc + 1] = 0.0;
-        this.data[loc + 2] = 0.0;
-        this.data[loc + 3] = 0.0;
     };
 }
 
@@ -166,141 +153,86 @@ class Line {
         return new Point(this.start.x + per * dx, this.start.y + per * dy);
     };
 
-    get_weight(image, weight_func) {
-        let total_weight = 0;
+    // returns the l1 norm of the difference
+    add_to_buffer(buffer, fill_val, orig) {
+        let total_diff = 0;
         for (var i = 0; i < this.pixels.length; i++) {
-            total_weight += image.get_pixel_weight(this.pixels[i], weight_func);
+            let curr = buffer.get([this.pixels[i].y, this.pixels[i].x]);
+            let new_val = constrain(((fill_val * graph.thread_opacity + curr) / (1 + graph.thread_opacity)), 0.0, 1.0);
+            //let new_val = fill_val;
+            total_diff += Math.abs(orig.get([this.pixels[i].y, this.pixels[i].x]) - new_val) - Math.abs(orig.get([this.pixels[i].y, this.pixels[i].x]) - curr);
+            buffer.set([this.pixels[i].y, this.pixels[i].x], new_val);
         }
-        return total_weight / this.pixels.length;
-    };
-
-    get_weight_cache(cache) {
-        let total_weight = 0;
-        for (var i = 0; i < this.pixels.length; i++) {
-            total_weight += cache[this.pixels[i].y][this.pixels[i].x];
-        }
-        return total_weight / this.pixels.length;
-    };
-
-    clear_line(image) {
-        for (var i = 0; i < this.pixels.length; i++) {
-            image.clear_pixel(this.pixels[i]);
-        }
-        return image;
-    };
-
-    clear_cache_line() {
-        for (var i = 0; i < graph.threads.length; i++) {
-            let thread = graph.threads[i];
-            for (var j = 0; j < this.pixels.length; j++) {
-                thread.pixels_cache[this.pixels[j].y][this.pixels[j].x] = 0.0;
-            }
-        }
-    };
+        return total_diff;
+    }
 }
-
-// Various weighting functions
-
-// Brightness in grayscale
-function grayscale_weight(pixel) {
-    let ret = 255.0 - (0.299 * pixel.r + 0.587 * pixel.g + 0.114 * pixel.b);
-    return ret * (pixel.a / 255);
-}
-
-function deltaE(rgbA, rgbB) {
-    let labA = rgb2lab(rgbA);
-    let labB = rgb2lab(rgbB);
-    let deltaL = labA[0] - labB[0];
-    let deltaA = labA[1] - labB[1];
-    let deltaB = labA[2] - labB[2];
-    let c1 = Math.sqrt(labA[1] * labA[1] + labA[2] * labA[2]);
-    let c2 = Math.sqrt(labB[1] * labB[1] + labB[2] * labB[2]);
-    let deltaC = c1 - c2;
-    let deltaH = deltaA * deltaA + deltaB * deltaB - deltaC * deltaC;
-    deltaH = deltaH < 0 ? 0 : Math.sqrt(deltaH);
-    let sc = 1.0 + 0.045 * c1;
-    let sh = 1.0 + 0.015 * c1;
-    let deltaLKlsl = deltaL / (1.0);
-    let deltaCkcsc = deltaC / (sc);
-    let deltaHkhsh = deltaH / (sh);
-    let i = deltaLKlsl * deltaLKlsl + deltaCkcsc * deltaCkcsc + deltaHkhsh * deltaHkhsh;
-    return i < 0 ? 0 : Math.sqrt(i);
-}
-
-function rgb2lab(rgb) {
-    let r = rgb[0] / 255, g = rgb[1] / 255, b = rgb[2] / 255, x, y, z;
-    r = (r > 0.04045) ? Math.pow((r + 0.055) / 1.055, 2.4) : r / 12.92;
-    g = (g > 0.04045) ? Math.pow((g + 0.055) / 1.055, 2.4) : g / 12.92;
-    b = (b > 0.04045) ? Math.pow((b + 0.055) / 1.055, 2.4) : b / 12.92;
-    x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047;
-    y = (r * 0.2126 + g * 0.7152 + b * 0.0722) / 1.00000;
-    z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
-    x = (x > 0.008856) ? Math.pow(x, 1 / 3) : (7.787 * x) + 16 / 116;
-    y = (y > 0.008856) ? Math.pow(y, 1 / 3) : (7.787 * y) + 16 / 116;
-    z = (z > 0.008856) ? Math.pow(z, 1 / 3) : (7.787 * z) + 16 / 116;
-    return [(116 * y) - 16, 500 * (x - y), 200 * (y - z)]
-}
-
-function color_matching_weight(pixel, target, bias) {
-    return (100 - deltaE([pixel.r, pixel.g, pixel.b], [target.r, target.g, target.b])) * (pixel.a / 255) * bias;
-}
-
 
 class Thread {
-    constructor(start_nail, color, bias) {
+    constructor(start_nail, color, buffer, fill_val) {
         this.current_nail = start_nail;
         this.color = color;
+        this.buffer = math.matrix(buffer);
+        this.current_buffer = math.matrix(math.zeros(this.buffer.size()));
+        this.current_dist = math.sum(math.abs(math.subtract(this.current_buffer, this.buffer)));
         this.nail_order = [start_nail];
         this.next_weight = -Infinity;
         this.next_nail;
         this.next_valid = false;
         this.next_line;
-        this.weight_func = function (pixel) { return color_matching_weight(pixel, color, bias) };
+        this.next_buffer;
+        this.prev_nail = -1;
+
+        this.fill_val = fill_val;
 
         this.read_head = 1;
         this.read_prev = 0;
+
+        render_buffer(this.buffer, "fuck");
     }
 
     get_next_nail_weight(image) {
-        if (!this.pixels_cache) {
-            console.log("once");
-            this.pixels_cache = Array(image.height).fill(0);
-            for (var y = 0; y < image.height; y++) {
-                this.pixels_cache[y] = Array(image.width).fill(0);
-                for (var x = 0; x < image.width; x++) {
-                    this.pixels_cache[y][x] = image.get_pixel_weight(new Point(x, y), this.weight_func);
+        if (this.next_valid) {
+            return this.next_dist;
+        }
+        let chords = graph.get_connections(this.current_nail, image);
+        let min_dist = Infinity;
+        let min_dist_index;
+        let min_buffer;
+        chords.forEach((line, i) => {
+            if (i !== this.prev_nail) {
+                if (line) {
+                    let deep_buffer_copy = this.current_buffer.clone();
+                    let dif = line.add_to_buffer(deep_buffer_copy, this.fill_val, this.buffer);
+                    let dist = this.current_dist + dif;
+                    if (dist < min_dist) {
+                        min_dist = dist;
+                        min_dist_index = i;
+                        min_buffer = deep_buffer_copy.clone();
+                    }
                 }
             }
+        });
+        if (this.current_dist <= min_dist) {
+            min_dist = Infinity;
         }
-        if (!this.next_valid) {
-            let chords = graph.get_connections(this.current_nail, image);
-            let chord_weights = chords.map(line => line ? line.get_weight_cache(this.pixels_cache) : -Infinity);
-            let max_weight = -Infinity;
-            let max_weight_index;
-            let max_line;
-            for (var i = 0; i < graph.num_nails; i++) {
-                if (chord_weights[i] > max_weight) {
-                    max_weight_index = i;
-                    max_weight = chord_weights[i];
-                    max_line = chords[i];
-                }
-            }
-            this.next_weight = max_weight;
-            this.next_nail = max_weight_index;
-            this.next_line = max_line;
-            this.next_valid = true;
-        }
-        return this.next_weight;
+        this.next_dist = min_dist;
+        this.next_nail = min_dist_index;
+        this.next_line = chords[min_dist_index];
+        this.next_valid = true;
+        this.next_buffer = min_buffer;
+        return this.next_dist;
     }
 
     move_to_next_nail(image) {
         if (!this.next_valid) {
             this.get_next_nail_weight(image);
         }
+        this.prev_nail = this.current_nail;
         this.current_nail = this.next_nail;
         this.nail_order.push(this.current_nail);
         this.next_valid = false;
-        this.next_line.clear_cache_line(this.pixels_cache);
+        this.current_buffer = this.next_buffer.clone();
+        this.current_dist = this.next_dist;
         this.get_next_nail_weight(image);
     }
 
@@ -315,24 +247,31 @@ class Thread {
         this.read_prev++;
         return [[start.x, start.y], [end.x, end.y]];
     }
+
+    get_current_line() {
+        let start = graph.nails_pos[this.nail_order[this.nail_order.length - 1]];
+        let end = graph.nails_pos[this.nail_order[this.nail_order.length - 2]];
+        return [[start.x, start.y], [end.x, end.y]];
+    }
 }
 
 // Create the graph
 let graph = {
     init() {
+        this.render_timeout = null;
         this.width = 30;
         this.height = this.width;
         this.radius = this.width / 3;
         this.max_iter = 10000;
 
-        this.num_nails = 500;
+        this.num_nails = 300;
         this.thread_diam = 0.01; // thread width in inches
         this.nail_diam = 0.1;
         this.nails_pos = [];
 
-        this.connection_cache = {};
+        this.line_cache = {};
 
-        this.threshold = 0.001;
+        this.thread_opacity = 0.3;
 
         this.svg = d3.select("body").append("svg")
             .attr("width", "100vw")
@@ -379,26 +318,7 @@ let graph = {
             .attr("r", this.nail_diam / 2)
             .attr("fill", "aqua");
     },
-    update(image) {
-        if (!image) return;
-        // this.threads = [
-        //     new Thread(0, new Color(255, 255, 255, 255)),
-        //     new Thread(100, new Color(0, 255, 255, 255)),
-        //     new Thread(100, new Color(255, 255, 0, 255)),
-        //     new Thread(100, new Color(255, 0, 255, 255))
-        // ];
-        // this.threads = [
-        //     new Thread(0, new Color(255, 255, 255, 255), 1.0), //white
-        //     new Thread(100, new Color(58, 125, 16, 255), 1.0), //grass green
-        //     new Thread(100, new Color(141, 255, 41, 255), 1.0), // light green
-        //     new Thread(0, new Color(214, 172, 45, 255), 1.0), // golden brown
-        //     new Thread(0, new Color(0, 0, 0, 255), 1.0) // golden brown
-        // ];
-        this.threads = [
-            new Thread(0, new Color(255, 255, 255, 255), 1.0),
-            new Thread(100, new Color(0, 0, 0, 255), 1.0)
-        ];
-        let thread_order = this.parse_image(image);
+    update(thread_order) {
         var simpleLine = d3.line()
         this.svg.select("g")
             .selectAll(".string")
@@ -411,23 +331,11 @@ let graph = {
                 .attr("class", "string")
                 .style("stroke", "white")
                 .style("stroke-width", this.thread_diam)
-                .style("stroke", `rgba(${curr_thread.color.r},${curr_thread.color.g},${curr_thread.color.b},0.3)`)
+                .style("stroke", `rgba(${curr_thread.color.r},${curr_thread.color.g},${curr_thread.color.b},0.8)`)
                 .style("fill", "none");
         }
+        render_buffer(this.threads[0].current_buffer, "damnit");
         console.log(this.threads);
-        // let strings = this.svg.select("g")
-        //     .selectAll(".strings")
-        //     .data([nail_order])
-        //     .join("path")
-        //     .attr("class", "strings")
-        //     .attr("d", d3.line(d => d.x, d => d.y))
-        //     .style("stroke", "#FFFFFFA0")
-        // .style("stroke-width", this.thread_diam)
-        // .style("fill", "none");
-
-        // strings.exit()
-        //     .remove();
-
         this.svg.selectAll("g circle.nail").raise();
     },
 
@@ -444,42 +352,62 @@ let graph = {
                 ret[i] = null;
                 continue;
             };
+            let cache = this.line_cache[`${Math.min(i, nail_num)}|${Math.max(i, nail_num)}`];
+            if (cache) {
+                ret[i] = cache;
+                continue;
+            }
             let dst = this.nails_pos[i];
             let line = new Line(src, dst);
             line.compute_pixel_overlap(image, this.frame_bb);
             ret[i] = line;
+            this.line_cache[`${Math.min(i, nail_num)}|${Math.max(i, nail_num)}`] = line;
         }
         return ret;
     },
 
     // Generates a nail and color order from pixel data
-    parse_image(image) {
+    parse_image() {
+        this.threads = [
+            new Thread(0, new Color(255, 255, 255, 255), this.image.channels["white"], 1.0)
+        ];
         let iter = 0;
         let thread_order = [];
         while (iter < this.max_iter) {
-            let max_thread;
-            let max_thread_index;
-            let max_thread_weight = -Infinity;
+            let min_thread;
+            let min_thread_index;
+            let min_thread_weight = Infinity;
             for (var i = 0; i < this.threads.length; i++) {
-                let weight = this.threads[i].get_next_nail_weight(image);
-                if (weight >= max_thread_weight) {
-                    max_thread_weight = weight;
-                    max_thread_index = i;
-                    max_thread = this.threads[i];
+                let weight = this.threads[i].get_next_nail_weight(this.image);
+                if (weight <= min_thread_weight) {
+                    min_thread_weight = weight;
+                    min_thread_index = i;
+                    min_thread = this.threads[i];
                 }
             }
-            if (max_thread_weight < this.threshold) {
+            console.log(min_thread_weight);
+            if (min_thread_weight === Infinity) {
                 break;
             }
-            max_thread.move_to_next_nail(image);
-            thread_order.push(max_thread_index);
+            min_thread.move_to_next_nail(this.image);
+            thread_order.push(min_thread_index);
+            if (min_thread.nail_order.length > 1) {
+                var simpleLine = d3.line()
+                this.svg.select("g")
+                    .append('path')
+                    .attr("d", simpleLine(min_thread.get_current_line()))
+                    .attr("class", "string")
+                    .style("stroke", "white")
+                    .style("stroke-width", this.thread_diam)
+                    .style("stroke", `rgba(${min_thread.color.r},${min_thread.color.g},${min_thread.color.b},0.8)`)
+                    .style("fill", "none");
+            }
             iter++;
         }
-        return thread_order.reverse();
+        this.update(thread_order.reverse());
     }
 };
 graph.init();
-graph.update();
 
 /**
 * IMAGE PROCESSING
@@ -510,6 +438,22 @@ function grayscale(imgData) {  //input range [-100..100]
     return imgData;
 }
 
+function render_buffer(buffer, canvas_id) {
+    let buf = buffer._data.flat();
+    let rgba = [];
+    for (var i = 0; i < buf.length; i++) {
+        for (var j = 0; j < 3; j++) { rgba.push(buf[i] * 255); }
+        rgba.push(255.0);
+    }
+    const canvas = document.getElementById(canvas_id);
+    const ctx = canvas.getContext('2d');
+    canvas.width = buffer.size()[1];
+    canvas.height = buffer.size()[0];
+    let dataImage = ctx.createImageData(canvas.width, canvas.height);
+    dataImage.data.set(rgba);
+    ctx.putImageData(dataImage, 0, 0);
+}
+
 function render_image(url) {
     var img = document.getElementById('snapshot');
     img.onload = () => {
@@ -526,7 +470,7 @@ function render_image(url) {
 
         // Bunch of sloppy logic to resize the image / canvas to play nice with the frame bounding box.
         // The image is centered and scaled to fill the frame.
-        const max_res = 300;
+        const max_res = 500;
         let frame_ar = graph.frame_bb.width / graph.frame_bb.height;
         let img_ar = img.width / img.height;
         canvas.width = frame_ar >= 1 ? max_res : max_res * frame_ar;
@@ -537,13 +481,16 @@ function render_image(url) {
         const rgba = ctx.getImageData(
             0, 0, canvas.width, canvas.height
         );
+        //contrastImage(rgba, 100.0);
         let new_img = new Image(rgba.data, canvas.width, canvas.height);
         new_img.split_channels();
-        graph.update(new_img);
+        graph.image = new_img;
+        graph.render_timeout =
+            graph.parse_image();
     }
 }
 
-render_image();
+//render_image();
 
 input.addEventListener("change", function () {
     if (this.files && this.files[0]) {
