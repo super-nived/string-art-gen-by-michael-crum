@@ -9,11 +9,28 @@
 
 <body>
     <div id="ui">
-        <!-- <h1>Generalized String Art Generator</h1> -->
+        <h1>Generalized String Art Generator</h1>
+        <p>Click and drag + scroll to zoom,</p>
+        <img id="snapshot" src="example.jpg">
         <input type="file" accept="image/jpeg, image/png, image/jpg">
         <br>
-        <img id="snapshot" src="#">
-        <canvas id="test"></canvas>
+        <button id="regenerate"><b>Regenerate</b></button>
+        <details open>
+            <summary>Basic Options</summary>
+            <label for="shape_path">Frame path (svg):</label> <br>
+            <input type="text" id="shape_path" class="text_entry"> <br>
+            <label for="thresh">Threshold: <span class="slide-value"></span></label> <br>
+            <input type="range" min="0" max="1000" value="300" step="1" class="slider" id="thresh"> <br>
+            <label for="nails">Number of nails</label> <br>
+            <input type="range" min="0" max="1000" value="100" step="1" class="slider" id="nails"> <br>
+        </details>
+        <details>
+            <summary>Advanced</summary>
+            <label for="nail_size">Nail diameter (in)</label> <br>
+            <input type="range" min="0" max="1" value="0.1" step="0.01" class="slider" id="nail_size"> <br>
+            <label for="thread_size">Thread diameter (in)</label> <br>
+            <input type="range" min="0" max="1" value="0.1" step="0.01" class="slider" id="thread_size"> <br>
+        </details>
     </div>
 </body>
 

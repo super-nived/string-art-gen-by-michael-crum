@@ -1,5 +1,6 @@
 /**
- * IMAGE PROCESSING
+ * COMPUTER VISION
+ * Most of this is unused, was added while trying a hough transform approach
  */
 
 //These get transposed in the code, which is why the might look unintuitive
@@ -15,11 +16,8 @@ let sobel_dx_kernel = [
     [-1, -2, -1]
 ];
 
-function constrain(val, min, max) {
-    return val < min ? min : (val > max ? max : val); // ew 
-}
-
 // https://gist.github.com/xposedbones/75ebaef3c10060a3ee3b246166caab56
+const constrain = (val, min, max) => (val < min ? min : (val > max ? max : val))
 const map = (value, x1, y1, x2, y2) => (value - x1) * (y2 - x2) / (y1 - x1) + x2;
 
 // Based on Dan Shiffman's implementation of convolution (https://p5js.org/examples/image-convolution.html)
@@ -84,25 +82,93 @@ function gradient_mag(img) {
 /**
  * GRAPHING
  */
-
-let point = {
-    point(x, y) {
+class Point {
+    constructor(x, y) {
         this.x = x;
         this.y = y;
     }
 }
 
-let line = {
-    line(start, end) {
+class Image {
+    constructor(data, width, height) {
+        this.data = data;
+        this.width = width;
+        this.height = height;
+    };
+    // Convert from SVG coords into pixels
+    get_image_point(svg_point, bounding_box) {
+        let x = Math.floor(map(svg_point.x, bounding_box.x, bounding_box.x + bounding_box.width, 0, this.width - 1));
+        let y = Math.floor(map(svg_point.y, bounding_box.y, bounding_box.y + bounding_box.height, 0, this.height - 1));
+        return new Point(x, y);
+    };
+    // Get pixels color average
+    get_pixel_weight(point) {
+        let loc = (point.x + point.y * this.width) * 4;
+        let g = 0.299 * this.data[loc] + 0.587 * this.data[loc + 1] + 0.114 * this.data[loc + 2];
+        return g;
+    };
+    // Clear pixel (set it to black)
+    clear_pixel(point) {
+        let loc = (point.x + point.y * this.width) * 4;
+        this.data[loc] = 0.0;
+        this.data[loc + 1] = 0.0;
+        this.data[loc + 2] = 0.0;
+    };
+}
+
+class Line {
+    constructor(start, end) {
         this.start = start;
         this.end = end;
-    },
+    };
+
+    compute_pixel_overlap(image, svg_bounding_box) {
+        this.pixels = [];
+        // Bresenham algorithm taken from https://stackoverflow.com/a/4672319
+        var start_point = image.get_image_point(this.start, svg_bounding_box);
+        var end_point = image.get_image_point(this.end, svg_bounding_box);
+        var x0 = start_point.x;
+        var x1 = end_point.x;
+        var y0 = start_point.y;
+        var y1 = end_point.y;
+        var dx = Math.abs(x1 - x0);
+        var dy = Math.abs(y1 - y0);
+        var sx = (x0 < x1) ? 1 : -1;
+        var sy = (y0 < y1) ? 1 : -1;
+        var err = dx - dy;
+
+        let current_point;
+        while (true) {
+            current_point = new Point(x0, y0);
+            this.pixels.push(current_point);
+
+            if ((x0 === x1) && (y0 === y1)) break;
+            var e2 = 2 * err;
+            if (e2 > -dy) { err -= dy; x0 += sx; }
+            if (e2 < dx) { err += dx; y0 += sy; }
+        }
+    };
 
     point_at(per) {
         let dx = this.end.x - this.start.x;
         let dy = this.end.y - this.start.y;
-        return point(this.start.x + per * dx, this.start.y + per * dy);
-    }
+        return new Point(this.start.x + per * dx, this.start.y + per * dy);
+    };
+
+    get_weight(image) {
+        let total_weight = 0;
+        for (var i = 0; i < this.pixels.length; i++) {
+            total_weight += image.get_pixel_weight(this.pixels[i]);
+        }
+        return total_weight / this.pixels.length;
+    };
+
+    clear_line(image) {
+        for (var i = 0; i < this.pixels.length; i++) {
+            image.clear_pixel(this.pixels[i]);
+        }
+        return image;
+    };
 }
 
 // Create the graph
@@ -110,21 +176,22 @@ let graph = {
     init() {
         this.width = 30;
         this.height = this.width;
-        this.radius = this.width / 4;
+        this.radius = this.width / 3;
+        this.max_itter = 300;
 
         this.num_nails = 200;
         this.thread_diam = 0.01; // thread width in inches
         this.nail_diam = 0.1;
+        this.nail_pos = [];
+
+        this.threshold = 0.0;
 
         this.svg = d3.select("body").append("svg")
             .attr("width", "100vw")
-            .attr("height", "100vh")
             .attr("viewBox", [-this.width / 2, -this.height / 2, this.width, this.height])
-            .attr("style", "max-width: 100%; height: auto; font: 10px sans-serif;");
 
         this.svg.append("g");
-    },
-    update(pixels) {
+
         // let frame_path = this.svg.select("g")
         //     .append("circle")
         //     .attr("r", this.radius)
@@ -140,12 +207,12 @@ let graph = {
             .attr("y", -this.radius)
             .style("stroke", "#ffbe5700")
             .style("stroke-width", 0.5)
-            .style("fill", "none")
+            .style("fill", "none");
 
         this.frame_bb = frame_path.node().getBBox();
 
-        let nails_lst = []
-        let nails_pos = []
+        let nails_lst = [];
+        this.nails_pos = [];
         for (let i = 0; i < this.num_nails; i++) {
             nails_lst.push(i);
         }
@@ -159,111 +226,167 @@ let graph = {
             .attr("class", "nail")
             .attr("transform", (d) => {
                 let pos = frame_path.node().getPointAtLength((d / this.num_nails) * frame_length);
-                nails_pos.push(pos);
+                this.nails_pos.push(new Point(pos.x, pos.y));
                 return `translate(${pos.x}, ${pos.y})`;
             })
             .attr("r", this.nail_diam / 2)
             .attr("fill", "aqua");
-
-        if (!pixels) return;
-        string_order = this.parse_image(pixels);
-        let nail_order = string_order.map((num) => nails_pos[num]);
+    },
+    update(image) {
+        if (!image) return;
+        let string_order = this.parse_image(image);
+        let nail_order = string_order.map((num) => this.nails_pos[num]);
         let strings = this.svg.select("g")
-            .selectAll("strings")
-            .data([nail_order]);
-        strings.enter()
-            .append("path")
+            .selectAll(".strings")
+            .data([nail_order])
+            .join("path")
             .attr("class", "strings")
-            .merge(strings)
             .attr("d", d3.line(d => d.x, d => d.y))
-            .style("stroke", "white")
+            .style("stroke", "#FFFFFF")
             .style("stroke-width", this.thread_diam)
             .style("fill", "none");
+
+        strings.exit()
+            .remove();
 
         this.svg.selectAll("g circle.nail").raise();
     },
 
-    get_complete_graph(nail_pos) {
+    get_settings() {
+
+    },
+
+    // Returns lines connecting the given nail to all other nails
+    get_connections(nail_num, image) {
         let ret = [];
-        for (var a = 0; a < this.num_nails - 1; a++) {
-            for (var b = a + 1; b < this.num_nails; b++) {
-                ret.push([nails_pos[a], nails_pos[b]]);
-            }
+        let src = this.nails_pos[nail_num];
+        for (var i = 0; i < this.num_nails; i++) {
+            if (i === nail_num) {
+                ret[i] = null;
+                continue;
+            };
+            let dst = this.nails_pos[i];
+            let line = new Line(src, dst);
+            line.compute_pixel_overlap(image, this.frame_bb);
+            ret[i] = line;
         }
         return ret;
     },
 
-    get_chord_weight(image, start, end) {
-
-        return 1.0;
-    },
-
-    point_along_line() {
-
-    },
-
-    svg_to_image_coord(x, y) {
-
-    },
-
     // Generates a nail order from pixel data
-    parse_image(pixels) {
+    parse_image(image) {
         let string_order = [];
 
-        let chord_weights = {};
+        let current_nail = 0;
 
-
-
-        for (var i = 0; i < 1000; i++) {
-            string_order.push(Math.floor(Math.random() * this.num_nails))
+        let chord_weights;
+        let chords;
+        let thresh_val = this.threshold;
+        let used_chords = [];
+        for (var i = 0; i < this.num_nails; i++) {
+            used_chords[i] = [];
         }
-
+        while (string_order.length < this.max_itter) {
+            string_order.push(current_nail)
+            chords = this.get_connections(current_nail, image);
+            chord_weights = chords.map(line => line ? line.get_weight(image) : -Infinity);
+            let max_weight = -Infinity;
+            let max_weight_index;
+            for (var i = 0; i < this.num_nails; i++) {
+                if (chord_weights[i] > max_weight) {
+                    max_weight_index = i;
+                    max_weight = chord_weights[i];
+                }
+            }
+            //if (!thresh_val) thresh_val = max_weight * this.threshold;
+            if (max_weight < thresh_val) {
+                break;
+            }
+            image = chords[max_weight_index].clear_line(image);
+            current_nail = max_weight_index;
+        }
         return string_order;
     }
 };
 graph.init();
 graph.update();
 
-// Image input
+/**
+* IMAGE PROCESSING
+ */
 const input = document.querySelector("input");
+
+//https://stackoverflow.com/a/37714937
+function contrastImage(imgData, contrast) {  //input range [-100..100]
+    var d = imgData.data;
+    contrast = (contrast / 100) + 1;  //convert to decimal & shift range: [0..2]
+    var intercept = 128 * (1 - contrast);
+    for (var i = 0; i < d.length; i += 4) {   //r,g,b,a
+        d[i] = d[i] * contrast + intercept;
+        d[i + 1] = d[i + 1] * contrast + intercept;
+        d[i + 2] = d[i + 2] * contrast + intercept;
+    }
+    return imgData;
+}
+
+function grayscale(imgData) {  //input range [-100..100]
+    var d = imgData.data;
+    for (var i = 0; i < d.length; i += 4) {   //r,g,b,a
+        let g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        d[i] = g;
+        d[i + 1] = g;
+        d[i + 2] = g;
+    }
+    return imgData;
+}
+
+function invert(imgData) {
+    var d = imgData.data;
+    for (var i = 0; i < d.length; i += 4) {   //r,g,b,a
+        d[i] = 255 - d[i];
+        d[i + 1] = 255 - d[i + 1];
+        d[i + 2] = 255 - d[i + 2];
+    }
+    return imgData;
+}
+
+function render_image(url) {
+    var img = document.getElementById('snapshot');
+    img.onload = () => {
+        if (url) URL.revokeObjectURL(img.src);
+    }
+    if (url)
+        img.src = url;
+    else
+        img.src = img.src;
+    img.onload = function () {
+        // const canvas = document.createElement("canvas");
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Bunch of sloppy logic to resize the image / canvas to play nice with the frame bounding box.
+        // The image is centered and scaled to fill the frame.
+        const max_res = 500;
+        let frame_ar = graph.frame_bb.width / graph.frame_bb.height;
+        let img_ar = img.width / img.height;
+        canvas.width = frame_ar >= 1 ? max_res : max_res * frame_ar;
+        canvas.height = frame_ar < 1 ? max_res : max_res / frame_ar;
+        let w = frame_ar >= img_ar ? canvas.width : canvas.height * img_ar;
+        let h = frame_ar < img_ar ? canvas.height : canvas.width / img_ar;
+        ctx.drawImage(img, - (w - canvas.width) / 2, - (h - canvas.height) / 2, w, h);
+        const rgba = ctx.getImageData(
+            0, 0, canvas.width, canvas.height
+        );
+        //contrastImage(rgba, 100);
+        graph.update(new Image(rgba.data, canvas.width, canvas.height));
+    }
+}
+
+render_image();
 
 input.addEventListener("change", function () {
     if (this.files && this.files[0]) {
-        var img = document.getElementById('snapshot');
-        img.onload = () => {
-            URL.revokeObjectURL(img.src);
-        }
-        img.src = URL.createObjectURL(this.files[0]);
-        img.onload = function () {
-            // const canvas = document.createElement("canvas");
-            const canvas = document.getElementById("test");
-            const ctx = canvas.getContext('2d');
-
-            // Bunch of sloppy logic to resize the image / canvas to play nice with the frame bounding box.
-            // The image is centered and scaled to fill the frame.
-            const max_res = 500;
-            let frame_ar = graph.frame_bb.width / graph.frame_bb.height;
-            let img_ar = img.width / img.height;
-            canvas.width = frame_ar >= 1 ? max_res : max_res * frame_ar;
-            canvas.height = frame_ar < 1 ? max_res : max_res / frame_ar;
-            let w = frame_ar >= img_ar ? canvas.width : canvas.height * img_ar;
-            let h = frame_ar < img_ar ? canvas.height : canvas.width / img_ar;
-            ctx.drawImage(img, - (w - canvas.width) / 2, - (h - canvas.height) / 2, w, h);
-            const rgba = ctx.getImageData(
-                - (w - canvas.width) / 2, - (h - canvas.height) / 2, w, h
-            );
-            let grayscale = [];
-            for (var i = 0; i < rgba.data.length; i += 4) {
-                let g = 0.299 * rgba.data[i] + 0.587 * rgba.data[i + 1] + 0.114 * rgba.data[i + 2];
-                rgba.data[i] = g;
-                rgba.data[i + 1] = g;
-                rgba.data[i + 2] = g;
-                grayscale.push(g);
-            }
-
-            ctx.putImageData(rgba, -(w - canvas.width) / 2, -(h - canvas.height) / 2);
-            graph.update(grayscale);
-        }
+        render_image(URL.createObjectURL(this.files[0]));
     }
 })
 
