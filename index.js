@@ -89,6 +89,16 @@ class Point {
     }
 }
 
+function invert(imgData) {
+    var d = imgData;
+    for (var i = 0; i < d.length; i += 4) {   //r,g,b,a
+        d[i] = 255 - d[i];
+        d[i + 1] = 255 - d[i + 1];
+        d[i + 2] = 255 - d[i + 2];
+    }
+    return imgData;
+}
+
 class Image {
     constructor(data, width, height) {
         this.data = data;
@@ -102,17 +112,17 @@ class Image {
         return new Point(x, y);
     };
     // Get pixels color average
-    get_pixel_weight(point) {
+    get_pixel_weight(point, weight_func) {
         let loc = (point.x + point.y * this.width) * 4;
-        let g = 0.299 * this.data[loc] + 0.587 * this.data[loc + 1] + 0.114 * this.data[loc + 2];
-        return g;
+        return weight_func(new Color(this.data[loc], this.data[loc + 1], this.data[loc + 2], this.data[loc + 3]));
     };
-    // Clear pixel (set it to black)
+    // Clear pixel (set it to transparent)
     clear_pixel(point) {
         let loc = (point.x + point.y * this.width) * 4;
         this.data[loc] = 0.0;
         this.data[loc + 1] = 0.0;
         this.data[loc + 2] = 0.0;
+        this.data[loc + 3] = 0.0;
     };
 }
 
@@ -155,10 +165,10 @@ class Line {
         return new Point(this.start.x + per * dx, this.start.y + per * dy);
     };
 
-    get_weight(image) {
+    get_weight(image, weight_func) {
         let total_weight = 0;
         for (var i = 0; i < this.pixels.length; i++) {
-            total_weight += image.get_pixel_weight(this.pixels[i]);
+            total_weight += image.get_pixel_weight(this.pixels[i], weight_func);
         }
         return total_weight / this.pixels.length;
     };
@@ -169,6 +179,69 @@ class Line {
         }
         return image;
     };
+}
+
+class Color {
+    constructor(r, g, b, a) {
+        this.r = r;
+        this.b = b;
+        this.g = g;
+        this.a = a;
+    }
+}
+
+// Various weighting functions
+
+// Brightness in grayscale
+function grayscale_weight(pixel) {
+    let ret = 255.0 - (0.299 * pixel.r + 0.587 * pixel.g + 0.114 * pixel.b);
+    return ret * (pixel.a / 255);
+}
+
+function color_matching_weight(pixel, target) {
+    let ret = 255.0 - ((Math.abs(pixel.r - target.r) + Math.abs(pixel.g - target.g) + Math.abs(pixel.b - target.b)) / 3);
+    return ret * (pixel.a / 255);
+}
+
+let red_matching_weight = function (pixel) { return color_matching_weight(pixel, new Color(255, 255, 255, 255)) };
+
+class Thread {
+    constructor(start_nail, color) {
+        this.current_nail = start_nail;
+        this.color = color;
+        this.nail_order = [start_nail];
+        this.next_weight = -Infinity;
+        this.next_nail;
+        this.next_valid = false;
+        this.weight_func = function (pixel) { return color_matching_weight(pixel, color) };
+    }
+
+    get_next_nail_weight(image) {
+        if (this.next_valid) {
+            return this.next_weight;
+        } else {
+            graph.get_connections(this.current_nail, image);
+            chords = this.get_connections(current_nail, image);
+            chord_weights = chords.map(line => line ? line.get_weight(image, red_matching_weight) : -Infinity);
+            let max_weight = -Infinity;
+            let max_weight_index;
+            for (var i = 0; i < this.num_nails; i++) {
+                if (chord_weights[i] > max_weight) {
+                    max_weight_index = i;
+                    max_weight = chord_weights[i];
+                }
+            }
+            this.next_weight = max_weight;
+            this.next_nail = max_weight_index;
+            this.next_valid = true;
+        }
+    }
+
+    move_to_next_nail(image) {
+        this.current_nail = this.next_nail;
+        this.next_valid = false;
+        this.get_next_nail_weight(image);
+    }
 }
 
 // Create the graph
@@ -183,6 +256,8 @@ let graph = {
         this.thread_diam = 0.01; // thread width in inches
         this.nail_diam = 0.1;
         this.nail_pos = [];
+
+        this.threads = [new Thread(0, new Color(255, 255, 255, 255))];
 
         this.threshold = 0.0;
 
@@ -235,14 +310,28 @@ let graph = {
     update(image) {
         if (!image) return;
         let string_order = this.parse_image(image);
-        let nail_order = string_order.map((num) => this.nails_pos[num]);
+        let nail_order = string_order.map((pair) => { return { color: pair.color, pos: this.nails_pos[pair] } });
+        for (var i = 0; i < nail_order.length; i++) {
+            let c = nail_order[i].color;
+            let pos = nail_order[i].pos;
+            this.svg.select("g")
+                .selectAll(`.string_${c}`)
+                .data([nail_order])
+                .join("path")
+                .attr("class", `string_${c}`)
+                .attr("d", d3.line(d => d.pos.x, d => d.pos.y))
+                .style("stroke", "#FFFFFFA0")
+                .style("stroke-width", this.thread_diam)
+                .style("fill", "none");
+
+        }
         let strings = this.svg.select("g")
             .selectAll(".strings")
             .data([nail_order])
             .join("path")
             .attr("class", "strings")
             .attr("d", d3.line(d => d.x, d => d.y))
-            .style("stroke", "#FFFFFF")
+            .style("stroke", "#FFFFFFA0")
             .style("stroke-width", this.thread_diam)
             .style("fill", "none");
 
@@ -289,7 +378,7 @@ let graph = {
         while (string_order.length < this.max_itter) {
             string_order.push(current_nail)
             chords = this.get_connections(current_nail, image);
-            chord_weights = chords.map(line => line ? line.get_weight(image) : -Infinity);
+            chord_weights = chords.map(line => line ? line.get_weight(image, red_matching_weight) : -Infinity);
             let max_weight = -Infinity;
             let max_weight_index;
             for (var i = 0; i < this.num_nails; i++) {
@@ -305,6 +394,7 @@ let graph = {
             image = chords[max_weight_index].clear_line(image);
             current_nail = max_weight_index;
         }
+        console.log(string_order);
         return string_order;
     }
 };
@@ -340,16 +430,6 @@ function grayscale(imgData) {  //input range [-100..100]
     return imgData;
 }
 
-function invert(imgData) {
-    var d = imgData.data;
-    for (var i = 0; i < d.length; i += 4) {   //r,g,b,a
-        d[i] = 255 - d[i];
-        d[i + 1] = 255 - d[i + 1];
-        d[i + 2] = 255 - d[i + 2];
-    }
-    return imgData;
-}
-
 function render_image(url) {
     var img = document.getElementById('snapshot');
     img.onload = () => {
@@ -366,6 +446,7 @@ function render_image(url) {
 
         // Bunch of sloppy logic to resize the image / canvas to play nice with the frame bounding box.
         // The image is centered and scaled to fill the frame.
+        // const max_res = Math.floor(graph.frame_bb.width / graph.thread_diam);
         const max_res = 500;
         let frame_ar = graph.frame_bb.width / graph.frame_bb.height;
         let img_ar = img.width / img.height;
