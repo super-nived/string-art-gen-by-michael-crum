@@ -90,12 +90,12 @@ class Image {
             "m": math.zeros([this.height, this.width]),
             "y": math.zeros([this.height, this.width]),
             "k": math.zeros([this.height, this.width]),
-            "white": math.zeros([this.height, this.width])
+            "black": math.zeros([this.height, this.width])
         };
     };
     split_channels() {
         for (var i = 0; i < this.data.length; i += 4) {
-            let cmyk = new Color(this.data[i], this.data[i + 1], this.data[i + 2]);
+            let cmyk = new ColorCMYK(this.data[i], this.data[i + 1], this.data[i + 2]);
             let x = (i / 4) % this.width;
             let y = Math.floor((i / 4) / this.width);
             this.channels["c"][y][x] = cmyk.c;
@@ -103,7 +103,7 @@ class Image {
             this.channels["y"][y][x] = cmyk.y;
             this.channels["k"][y][x] = cmyk.k;
 
-            this.channels["white"][y][x] = (0.299 * this.data[i] + 0.587 * this.data[i + 1] + 0.114 * this.data[i + 2]) / 255;
+            this.channels["black"][y][x] = 1 - (0.299 * this.data[i] + 0.587 * this.data[i + 1] + 0.114 * this.data[i + 2]) / 255;
         }
     }
     // Convert from SVG coords into pixels
@@ -186,8 +186,6 @@ class Thread {
 
         this.read_head = 1;
         this.read_prev = 0;
-
-        render_buffer(this.buffer, "fuck");
     }
 
     get_next_nail_weight(image) {
@@ -207,7 +205,7 @@ class Thread {
                     if (dist < min_dist) {
                         min_dist = dist;
                         min_dist_index = i;
-                        min_buffer = deep_buffer_copy.clone();
+                        min_buffer = deep_buffer_copy;
                     }
                 }
             }
@@ -258,20 +256,22 @@ class Thread {
 // Create the graph
 let graph = {
     init() {
-        this.render_timeout = null;
+        this.render_timeout_id = null;
+        this.render_iter = 0;
         this.width = 30;
         this.height = this.width;
         this.radius = this.width / 3;
         this.max_iter = 10000;
 
-        this.num_nails = 300;
-        this.thread_diam = 0.01; // thread width in inches
+        this.num_nails = 200;
+        this.thread_diam = 0.05; // thread width in inches
         this.nail_diam = 0.1;
         this.nails_pos = [];
 
         this.line_cache = {};
 
         this.thread_opacity = 0.3;
+        this.thread_order = [];
 
         this.svg = d3.select("body").append("svg")
             .attr("width", "100vw")
@@ -287,14 +287,16 @@ let graph = {
         //     .style("fill", "none")
 
         let frame_path = this.svg.append("g")
+            .lower()
             .append("rect")
+            .attr("class", "frame")
             .attr("width", this.radius * 2)
             .attr("height", this.radius * 2)
             .attr("x", -this.radius)
             .attr("y", -this.radius)
             .style("stroke", "#ffbe5700")
             .style("stroke-width", 0.5)
-            .style("fill", "none");
+            .style("fill", "white");
 
         this.frame_bb = frame_path.node().getBBox();
 
@@ -325,18 +327,19 @@ let graph = {
             .remove();
         for (var i = 0; i < thread_order.length; i++) {
             let curr_thread = this.threads[thread_order[i]];
+            let next_line = curr_thread.get_next_line();
             this.svg.select("g")
                 .append('path')
-                .attr("d", simpleLine(curr_thread.get_next_line()))
+                .attr("d", simpleLine(next_line))
                 .attr("class", "string")
                 .style("stroke", "white")
                 .style("stroke-width", this.thread_diam)
-                .style("stroke", `rgba(${curr_thread.color.r},${curr_thread.color.g},${curr_thread.color.b},0.8)`)
+                .style("stroke", `rgba(${curr_thread.color.r},${curr_thread.color.g},${curr_thread.color.b},${this.thread_opacity})`)
                 .style("fill", "none");
         }
-        render_buffer(this.threads[0].current_buffer, "damnit");
         console.log(this.threads);
         this.svg.selectAll("g circle.nail").raise();
+        this.svg.selectAll()
     },
 
     get_settings() {
@@ -366,45 +369,58 @@ let graph = {
         return ret;
     },
 
+    setup(img) {
+        this.image = img;
+        this.threads = [
+            new Thread(0, new Color(0, 255, 255, 255), img.channels["c"], 1.0),
+            new Thread(0, new Color(255, 0, 255, 255), img.channels["m"], 1.0),
+            new Thread(0, new Color(255, 255, 0, 255), img.channels["y"], 1.0),
+            new Thread(0, new Color(0, 0, 0, 255), img.channels["black"], 1.0)
+        ];
+        this.svg.select("g")
+            .selectAll(".string")
+            .remove();
+        this.thread_order = [];
+    },
+
     // Generates a nail and color order from pixel data
     parse_image() {
-        this.threads = [
-            new Thread(0, new Color(255, 255, 255, 255), this.image.channels["white"], 1.0)
-        ];
-        let iter = 0;
-        let thread_order = [];
-        while (iter < this.max_iter) {
-            let min_thread;
-            let min_thread_index;
-            let min_thread_weight = Infinity;
-            for (var i = 0; i < this.threads.length; i++) {
-                let weight = this.threads[i].get_next_nail_weight(this.image);
-                if (weight <= min_thread_weight) {
-                    min_thread_weight = weight;
-                    min_thread_index = i;
-                    min_thread = this.threads[i];
-                }
-            }
-            console.log(min_thread_weight);
-            if (min_thread_weight === Infinity) {
-                break;
-            }
-            min_thread.move_to_next_nail(this.image);
-            thread_order.push(min_thread_index);
-            if (min_thread.nail_order.length > 1) {
-                var simpleLine = d3.line()
-                this.svg.select("g")
-                    .append('path')
-                    .attr("d", simpleLine(min_thread.get_current_line()))
-                    .attr("class", "string")
-                    .style("stroke", "white")
-                    .style("stroke-width", this.thread_diam)
-                    .style("stroke", `rgba(${min_thread.color.r},${min_thread.color.g},${min_thread.color.b},0.8)`)
-                    .style("fill", "none");
-            }
-            iter++;
+        if (this.render_iter >= this.max_iter) {
+            this.update(this.thread_order.reverse());
+            clearTimeout(this.render_timeout_id);
+            return;
         }
-        this.update(thread_order.reverse());
+        let min_thread;
+        let min_thread_index;
+        let min_thread_weight = Infinity;
+        for (var i = 0; i < this.threads.length; i++) {
+            let weight = this.threads[i].get_next_nail_weight(this.image);
+            if (weight <= min_thread_weight) {
+                min_thread_weight = weight;
+                min_thread_index = i;
+                min_thread = this.threads[i];
+            }
+        }
+        if (min_thread_weight === Infinity) {
+            this.update(this.thread_order.reverse());
+            clearTimeout(this.render_timeout_id);
+            return
+        }
+        min_thread.move_to_next_nail(this.image);
+        this.thread_order.push(min_thread_index);
+        if (min_thread.nail_order.length > 1) {
+            var simpleLine = d3.line()
+            this.svg.select("g")
+                .append('path')
+                .attr("d", simpleLine(min_thread.get_current_line()))
+                .attr("class", "string")
+                .style("stroke", "white")
+                .style("stroke-width", this.thread_diam)
+                .style("stroke", `rgba(${min_thread.color.r},${min_thread.color.g},${min_thread.color.b},${this.thread_opacity})`)
+                .style("fill", "none");
+        }
+        this.render_iter++;
+        this.render_timeout_id = setTimeout(() => { this.parse_image() }, 0);
     }
 };
 graph.init();
@@ -470,7 +486,7 @@ function render_image(url) {
 
         // Bunch of sloppy logic to resize the image / canvas to play nice with the frame bounding box.
         // The image is centered and scaled to fill the frame.
-        const max_res = 500;
+        const max_res = 150;
         let frame_ar = graph.frame_bb.width / graph.frame_bb.height;
         let img_ar = img.width / img.height;
         canvas.width = frame_ar >= 1 ? max_res : max_res * frame_ar;
@@ -481,12 +497,11 @@ function render_image(url) {
         const rgba = ctx.getImageData(
             0, 0, canvas.width, canvas.height
         );
-        //contrastImage(rgba, 100.0);
+        //rgba.data.set(invert(rgba.data));
         let new_img = new Image(rgba.data, canvas.width, canvas.height);
         new_img.split_channels();
-        graph.image = new_img;
-        graph.render_timeout =
-            graph.parse_image();
+        graph.setup(new_img);
+        graph.parse_image();
     }
 }
 

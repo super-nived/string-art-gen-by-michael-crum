@@ -86,3 +86,7 @@ canvas {
 .padding_large {
     height: 100px;
 }
+
+path {
+    mix-blend-mode: multiply;
+}
