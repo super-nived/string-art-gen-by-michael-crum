@@ -47,3 +47,84 @@ let scratch = convolve(sobel_dx_kernel, rgba);
                 scratch2.push(255);
             }
             rgba.data.set(scratch2);
+
+            /**
+ * COMPUTER VISION
+ * Most of this is unused, was added while trying a hough transform approach
+ */
+
+//These get transposed in the code, which is why the might look unintuitive
+let sobel_dy_kernel = [
+    [-1, 0, 1],
+    [-2, 0, 2],
+    [-1, 0, 1]
+];
+
+let sobel_dx_kernel = [
+    [1, 2, 1],
+    [0, 0, 0],
+    [-1, -2, -1]
+];
+
+// https://gist.github.com/xposedbones/75ebaef3c10060a3ee3b246166caab56
+const constrain = (val, min, max) => (val < min ? min : (val > max ? max : val))
+const map = (value, x1, y1, x2, y2) => (value - x1) * (y2 - x2) / (y1 - x1) + x2;
+
+// Based on Dan Shiffman's implementation of convolution (https://p5js.org/examples/image-convolution.html)
+// Edited to port to my implementation
+
+function convolve(kernel, img) {
+    let copy = img.data.slice();
+    for (var x = 0; x < img.width; x++) {
+        for (var y = 0; y < img.height; y++) {
+            let loc = (x + y * img.width) * 4;
+            let pixel = convolve_pixel(x, y, kernel, img);
+            copy[loc] = pixel[0];
+            copy[loc + 1] = pixel[1];
+            copy[loc + 2] = pixel[2];
+        }
+    }
+    return copy;
+}
+
+function convolve_pixel(x, y, kernel, img) {
+    let matrixsize = kernel.length;
+    let rtotal = 0.0;
+    let gtotal = 0.0;
+    let btotal = 0.0;
+    const offset = Math.floor(matrixsize / 2);
+    for (let i = 0; i < matrixsize; i++) {
+        for (let j = 0; j < matrixsize; j++) {
+            // What pixel are we testing
+            const xloc = x + i - offset;
+            const yloc = y + j - offset;
+            let loc = (xloc + img.width * yloc) * 4;
+
+            // Make sure we haven't walked off our image, we could do better here
+            loc = constrain(loc, 0, img.data.length - 1);
+
+            // Calculate the convolution
+            // retrieve RGB values
+            rtotal += img.data[loc] * kernel[i][j];
+            gtotal += img.data[loc + 1] * kernel[i][j];
+            btotal += img.data[loc + 2] * kernel[i][j];
+        }
+    }
+    // Return the resulting color
+    return [rtotal, gtotal, btotal];
+}
+
+// Return the gradient magnitude image
+function gradient_mag(img) {
+    let ret = [];
+    for (var y = 0; y < img.height; y++) {
+        for (var x = 0; x < img.width; x++) {
+            let loc = (x + y * img.width) * 4;
+            let r = img.data[loc] ** 2;
+            let g = img.data[loc + 1] ** 2;
+            let b = img.data[loc + 2] ** 2;
+            ret.push(Math.sqrt(r + g + b));
+        }
+    }
+    return ret;
+}

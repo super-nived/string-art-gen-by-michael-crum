@@ -1,93 +1,6 @@
 /**
- * COMPUTER VISION
- * Most of this is unused, was added while trying a hough transform approach
+ * HELPERS
  */
-
-//These get transposed in the code, which is why the might look unintuitive
-let sobel_dy_kernel = [
-    [-1, 0, 1],
-    [-2, 0, 2],
-    [-1, 0, 1]
-];
-
-let sobel_dx_kernel = [
-    [1, 2, 1],
-    [0, 0, 0],
-    [-1, -2, -1]
-];
-
-// https://gist.github.com/xposedbones/75ebaef3c10060a3ee3b246166caab56
-const constrain = (val, min, max) => (val < min ? min : (val > max ? max : val))
-const map = (value, x1, y1, x2, y2) => (value - x1) * (y2 - x2) / (y1 - x1) + x2;
-
-// Based on Dan Shiffman's implementation of convolution (https://p5js.org/examples/image-convolution.html)
-// Edited to port to my implementation
-
-function convolve(kernel, img) {
-    let copy = img.data.slice();
-    for (var x = 0; x < img.width; x++) {
-        for (var y = 0; y < img.height; y++) {
-            let loc = (x + y * img.width) * 4;
-            let pixel = convolve_pixel(x, y, kernel, img);
-            copy[loc] = pixel[0];
-            copy[loc + 1] = pixel[1];
-            copy[loc + 2] = pixel[2];
-        }
-    }
-    return copy;
-}
-
-function convolve_pixel(x, y, kernel, img) {
-    let matrixsize = kernel.length;
-    let rtotal = 0.0;
-    let gtotal = 0.0;
-    let btotal = 0.0;
-    const offset = Math.floor(matrixsize / 2);
-    for (let i = 0; i < matrixsize; i++) {
-        for (let j = 0; j < matrixsize; j++) {
-            // What pixel are we testing
-            const xloc = x + i - offset;
-            const yloc = y + j - offset;
-            let loc = (xloc + img.width * yloc) * 4;
-
-            // Make sure we haven't walked off our image, we could do better here
-            loc = constrain(loc, 0, img.data.length - 1);
-
-            // Calculate the convolution
-            // retrieve RGB values
-            rtotal += img.data[loc] * kernel[i][j];
-            gtotal += img.data[loc + 1] * kernel[i][j];
-            btotal += img.data[loc + 2] * kernel[i][j];
-        }
-    }
-    // Return the resulting color
-    return [rtotal, gtotal, btotal];
-}
-
-// Return the gradient magnitude image
-function gradient_mag(img) {
-    let ret = [];
-    for (var y = 0; y < img.height; y++) {
-        for (var x = 0; x < img.width; x++) {
-            let loc = (x + y * img.width) * 4;
-            let r = img.data[loc] ** 2;
-            let g = img.data[loc + 1] ** 2;
-            let b = img.data[loc + 2] ** 2;
-            ret.push(Math.sqrt(r + g + b));
-        }
-    }
-    return ret;
-}
-
-/**
- * GRAPHING
- */
-class Point {
-    constructor(x, y) {
-        this.x = x;
-        this.y = y;
-    }
-}
 
 function invert(imgData) {
     var d = imgData;
@@ -99,12 +12,100 @@ function invert(imgData) {
     return imgData;
 }
 
+// https://gist.github.com/xposedbones/75ebaef3c10060a3ee3b246166caab56
+const constrain = (val, min, max) => (val < min ? min : (val > max ? max : val))
+const map = (value, x1, y1, x2, y2) => (value - x1) * (y2 - x2) / (y1 - x1) + x2;
+
+/**
+ * GRAPHING
+ */
+
+class Color {
+    constructor(r, g, b, a) {
+        this.r = r;
+        this.b = b;
+        this.g = g;
+        this.a = a;
+    }
+}
+
+class ColorCMYK {
+    constructor(c, m, y, k) {
+        this.c = c;
+        this.m = m;
+        this.y = y;
+        this.k = k;
+
+        if (!k) {
+            this.from_rgb(c, m, y);
+        }
+    };
+
+    //https://www.standardabweichung.de/code/javascript/rgb-cmyk-conversion-javascript
+    from_rgb(r, g, b) {
+        var c = 1 - (r / 255);
+        var m = 1 - (g / 255);
+        var y = 1 - (b / 255);
+        var k = Math.min(c, Math.min(m, y));
+
+        c = (c - k) / (1 - k);
+        m = (m - k) / (1 - k);
+        y = (y - k) / (1 - k);
+
+        c = isNaN(c) ? 0 : c;
+        m = isNaN(m) ? 0 : m;
+        y = isNaN(y) ? 0 : y;
+        k = isNaN(k) ? 0 : k;
+
+        this.c = c;
+        this.m = m;
+        this.y = y;
+        this.k = k;
+    };
+
+    mix(color, per) {
+        return new ColorCMYK(
+            (this.c + color.c * per) / (1 + per),
+            (this.m + color.m * per) / (1 + per),
+            (this.y + color.y * per) / (1 + per),
+            (this.k + color.k * per) / (1 + per)
+        );
+    }
+}
+
+class Point {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+    }
+}
+
 class Image {
     constructor(data, width, height) {
         this.data = data;
         this.width = width;
         this.height = height;
+        this.channels = {
+            "c": math.zeros([this.height, this.width]),
+            "m": math.zeros([this.height, this.width]),
+            "y": math.zeros([this.height, this.width]),
+            "k": math.zeros([this.height, this.width]),
+            "white": math.zeros([this.height, this.width])
+        };
     };
+    split_channels() {
+        for (var i = 0; i < this.data.length; i += 4) {
+            let cmyk = new Color(this.data[i], this.data[i + 1], this.data[i + 2]);
+            let x = (i / 4) % this.width;
+            let y = Math.floor((i / 4) / this.width);
+            this.channels["c"][y][x] = cmyk.c;
+            this.channels["m"][y][x] = cmyk.m;
+            this.channels["y"][y][x] = cmyk.y;
+            this.channels["k"][y][x] = cmyk.k;
+
+            this.channels["white"][y][x] = 0.299 * this.data[i] + 0.587 * this.data[i + 1] + 0.114 * this.data[i + 2];
+        }
+    }
     // Convert from SVG coords into pixels
     get_image_point(svg_point, bounding_box) {
         let x = Math.floor(map(svg_point.x, bounding_box.x, bounding_box.x + bounding_box.width, 0, this.width - 1));
@@ -196,15 +197,6 @@ class Line {
             }
         }
     };
-}
-
-class Color {
-    constructor(r, g, b, a) {
-        this.r = r;
-        this.b = b;
-        this.g = g;
-        this.a = a;
-    }
 }
 
 // Various weighting functions
@@ -334,7 +326,7 @@ let graph = {
         this.max_iter = 10000;
 
         this.num_nails = 500;
-        this.thread_diam = 0.2; // thread width in inches
+        this.thread_diam = 0.01; // thread width in inches
         this.nail_diam = 0.1;
         this.nails_pos = [];
 
@@ -395,17 +387,17 @@ let graph = {
         //     new Thread(100, new Color(255, 255, 0, 255)),
         //     new Thread(100, new Color(255, 0, 255, 255))
         // ];
-        this.threads = [
-            new Thread(0, new Color(255, 255, 255, 255), 1.0), //white
-            new Thread(100, new Color(58, 125, 16, 255), 1.0), //grass green
-            new Thread(100, new Color(141, 255, 41, 255), 1.0), // light green
-            new Thread(0, new Color(214, 172, 45, 255), 1.0), // golden brown
-            new Thread(0, new Color(0, 0, 0, 255), 1.0) // golden brown
-        ];
         // this.threads = [
-        //     new Thread(0, new Color(255, 255, 255, 255), 1.0),
-        //     new Thread(100, new Color(0, 0, 0, 255), 1.0)
+        //     new Thread(0, new Color(255, 255, 255, 255), 1.0), //white
+        //     new Thread(100, new Color(58, 125, 16, 255), 1.0), //grass green
+        //     new Thread(100, new Color(141, 255, 41, 255), 1.0), // light green
+        //     new Thread(0, new Color(214, 172, 45, 255), 1.0), // golden brown
+        //     new Thread(0, new Color(0, 0, 0, 255), 1.0) // golden brown
         // ];
+        this.threads = [
+            new Thread(0, new Color(255, 255, 255, 255), 1.0),
+            new Thread(100, new Color(0, 0, 0, 255), 1.0)
+        ];
         let thread_order = this.parse_image(image);
         var simpleLine = d3.line()
         this.svg.select("g")
@@ -534,7 +526,6 @@ function render_image(url) {
 
         // Bunch of sloppy logic to resize the image / canvas to play nice with the frame bounding box.
         // The image is centered and scaled to fill the frame.
-        // const max_res = Math.floor(graph.frame_bb.width / graph.thread_diam);
         const max_res = 300;
         let frame_ar = graph.frame_bb.width / graph.frame_bb.height;
         let img_ar = img.width / img.height;
@@ -546,12 +537,13 @@ function render_image(url) {
         const rgba = ctx.getImageData(
             0, 0, canvas.width, canvas.height
         );
-        //contrastImage(rgba, 100);
-        graph.update(new Image(rgba.data, canvas.width, canvas.height));
+        let new_img = new Image(rgba.data, canvas.width, canvas.height);
+        new_img.split_channels();
+        graph.update(new_img);
     }
 }
 
-//render_image();
+render_image();
 
 input.addEventListener("change", function () {
     if (this.files && this.files[0]) {
