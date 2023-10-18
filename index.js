@@ -103,7 +103,7 @@ class Image {
             this.channels["y"][y][x] = cmyk.y;
             this.channels["k"][y][x] = cmyk.k;
 
-            this.channels["black"][y][x] = 1 - (0.299 * this.data[i] + 0.587 * this.data[i + 1] + 0.114 * this.data[i + 2]) / 255;
+            this.channels["black"][y][x] = (1 - (0.299 * this.data[i] + 0.587 * this.data[i + 1] + 0.114 * this.data[i + 2]) / 255) * (this.data[i + 3] / 255);
         }
     }
     // Convert from SVG coords into pixels
@@ -154,12 +154,22 @@ class Line {
     };
 
     // returns the l1 norm of the difference
+    get_line_diff(buffer, fill_val, orig) {
+        let total_diff = 0;
+        for (var i = 0; i < this.pixels.length; i++) {
+            let curr = buffer.get([this.pixels[i].y, this.pixels[i].x]);
+            let new_val = constrain(((fill_val * graph.thread_opacity + curr) / (1 + graph.thread_opacity)), 0.0, 1.0);
+            total_diff += Math.abs(orig.get([this.pixels[i].y, this.pixels[i].x]) - new_val) - Math.abs(orig.get([this.pixels[i].y, this.pixels[i].x]) - curr);
+            //buffer.set([this.pixels[i].y, this.pixels[i].x], new_val);
+        }
+        return total_diff;
+    }
+
     add_to_buffer(buffer, fill_val, orig) {
         let total_diff = 0;
         for (var i = 0; i < this.pixels.length; i++) {
             let curr = buffer.get([this.pixels[i].y, this.pixels[i].x]);
             let new_val = constrain(((fill_val * graph.thread_opacity + curr) / (1 + graph.thread_opacity)), 0.0, 1.0);
-            //let new_val = fill_val;
             total_diff += Math.abs(orig.get([this.pixels[i].y, this.pixels[i].x]) - new_val) - Math.abs(orig.get([this.pixels[i].y, this.pixels[i].x]) - curr);
             buffer.set([this.pixels[i].y, this.pixels[i].x], new_val);
         }
@@ -199,13 +209,11 @@ class Thread {
         chords.forEach((line, i) => {
             if (i !== this.prev_nail) {
                 if (line) {
-                    let deep_buffer_copy = this.current_buffer.clone();
-                    let dif = line.add_to_buffer(deep_buffer_copy, this.fill_val, this.buffer);
+                    let dif = line.get_line_diff(this.current_buffer, this.fill_val, this.buffer);
                     let dist = this.current_dist + dif;
                     if (dist < min_dist) {
                         min_dist = dist;
                         min_dist_index = i;
-                        min_buffer = deep_buffer_copy;
                     }
                 }
             }
@@ -213,11 +221,12 @@ class Thread {
         if (this.current_dist <= min_dist) {
             min_dist = Infinity;
         }
+
         this.next_dist = min_dist;
         this.next_nail = min_dist_index;
         this.next_line = chords[min_dist_index];
+        this.next_line.add_to_buffer(this.current_buffer, this.fill_val, this.buffer);
         this.next_valid = true;
-        this.next_buffer = min_buffer;
         return this.next_dist;
     }
 
@@ -229,7 +238,6 @@ class Thread {
         this.current_nail = this.next_nail;
         this.nail_order.push(this.current_nail);
         this.next_valid = false;
-        this.current_buffer = this.next_buffer.clone();
         this.current_dist = this.next_dist;
         this.get_next_nail_weight(image);
     }
@@ -263,14 +271,14 @@ let graph = {
         this.radius = this.width / 3;
         this.max_iter = 10000;
 
-        this.num_nails = 200;
-        this.thread_diam = 0.05; // thread width in inches
+        this.num_nails = 300;
+        this.thread_diam = 0.01; // thread width in inches
         this.nail_diam = 0.1;
         this.nails_pos = [];
 
         this.line_cache = {};
 
-        this.thread_opacity = 0.3;
+        this.thread_opacity = 0.8;
         this.thread_order = [];
 
         this.svg = d3.select("body").append("svg")
@@ -485,8 +493,9 @@ function render_image(url) {
         const ctx = canvas.getContext('2d');
 
         // Bunch of sloppy logic to resize the image / canvas to play nice with the frame bounding box.
-        // The image is centered and scaled to fill the frame.
-        const max_res = 150;
+        // The image is centered and scaled to fill the frame
+        const max_res = graph.frame_bb.width / graph.thread_diam;
+        console.log(max_res);
         let frame_ar = graph.frame_bb.width / graph.frame_bb.height;
         let img_ar = img.width / img.height;
         canvas.width = frame_ar >= 1 ? max_res : max_res * frame_ar;

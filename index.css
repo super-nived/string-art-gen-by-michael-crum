@@ -87,6 +87,7 @@ canvas {
     height: 100px;
 }
 
-path {
+path,
+rect {
     mix-blend-mode: multiply;
 }
