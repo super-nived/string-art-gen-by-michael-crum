@@ -166,14 +166,11 @@ class Line {
     }
 
     add_to_buffer(buffer, fill_val, orig) {
-        let total_diff = 0;
         for (var i = 0; i < this.pixels.length; i++) {
             let curr = buffer.get([this.pixels[i].y, this.pixels[i].x]);
             let new_val = constrain(((fill_val * graph.thread_opacity + curr) / (1 + graph.thread_opacity)), 0.0, 1.0);
-            total_diff += Math.abs(orig.get([this.pixels[i].y, this.pixels[i].x]) - new_val) - Math.abs(orig.get([this.pixels[i].y, this.pixels[i].x]) - curr);
             buffer.set([this.pixels[i].y, this.pixels[i].x], new_val);
         }
-        return total_diff;
     }
 }
 
@@ -199,41 +196,43 @@ class Thread {
     }
 
     get_next_nail_weight(image) {
+        let slack = 10.0;
         if (this.next_valid) {
             return this.next_dist;
         }
         let chords = graph.get_connections(this.current_nail, image);
         let min_dist = Infinity;
-        let min_dist_index;
+        let min_dist_index = Math.floor(Math.random() * graph.nail_num);
         let min_buffer;
         chords.forEach((line, i) => {
             if (i !== this.prev_nail) {
                 if (line) {
                     let dif = line.get_line_diff(this.current_buffer, this.fill_val, this.buffer);
-                    let dist = this.current_dist + dif;
-                    if (dist < min_dist) {
+                    let dist = dif;
+                    if (dist < min_dist && Math.abs(dist) > 0.1) {
                         min_dist = dist;
                         min_dist_index = i;
                     }
                 }
             }
         });
-        if (this.current_dist <= min_dist) {
-            min_dist = Infinity;
-        }
+        console.log(min_dist)
+        // if (this.current_dist <= min_dist + slack) {
+        //     min_dist = Infinity;
+        // } && dist > 0.0001
 
         this.next_dist = min_dist;
         this.next_nail = min_dist_index;
         this.next_line = chords[min_dist_index];
-        this.next_line.add_to_buffer(this.current_buffer, this.fill_val, this.buffer);
         this.next_valid = true;
-        return this.next_dist;
+        return min_dist;
     }
 
     move_to_next_nail(image) {
         if (!this.next_valid) {
             this.get_next_nail_weight(image);
         }
+        this.next_line.add_to_buffer(this.current_buffer, this.fill_val, this.buffer);
         this.prev_nail = this.current_nail;
         this.current_nail = this.next_nail;
         this.nail_order.push(this.current_nail);
@@ -269,7 +268,7 @@ let graph = {
         this.width = 30;
         this.height = this.width;
         this.radius = this.width / 3;
-        this.max_iter = 10000;
+        this.max_iter = 3000;
 
         this.num_nails = 300;
         this.thread_diam = 0.01; // thread width in inches
@@ -278,7 +277,7 @@ let graph = {
 
         this.line_cache = {};
 
-        this.thread_opacity = 0.8;
+        this.thread_opacity = 1.0;
         this.thread_order = [];
 
         this.svg = d3.select("body").append("svg")
@@ -298,8 +297,8 @@ let graph = {
             .lower()
             .append("rect")
             .attr("class", "frame")
-            .attr("width", this.radius * 2)
-            .attr("height", this.radius * 2)
+            .attr("width", 19.25)
+            .attr("height", 15.25)
             .attr("x", -this.radius)
             .attr("y", -this.radius)
             .style("stroke", "#ffbe5700")
@@ -318,15 +317,42 @@ let graph = {
         let nails = this.svg.select("g")
             .selectAll("circle.nail")
             .data(nails_lst)
-            .join("circle")
-            .attr("class", "nail")
+            .join("g")
             .attr("transform", (d) => {
                 let pos = frame_path.node().getPointAtLength((d / this.num_nails) * frame_length);
                 this.nails_pos.push(new Point(pos.x, pos.y));
                 return `translate(${pos.x}, ${pos.y})`;
-            })
+            });
+        nails.append("circle")
+            .attr("class", "nail")
             .attr("r", this.nail_diam / 2)
             .attr("fill", "aqua");
+        // nails.append("text")
+        //     .style("fill", "black")
+        //     .style("stroke-width", `${this.nail_diam / 100}`)
+        //     .style("stroke", "white")
+        //     .attr("dx", "0")
+        //     .attr("dy", `${(this.nail_diam / 2) * 0.7}`)
+        //     .attr("font-size", `${this.nail_diam}px`)
+        //     .attr("text-anchor", "middle")
+        //     .text(function (d, i) { return i });
+        var serializer = new XMLSerializer();
+        var source = serializer.serializeToString(this.svg.node());
+
+        //add name spaces.
+        if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+            source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+        }
+        if (!source.match(/^<svg[^>]+"http\:\/\/www\.w3\.org\/1999\/xlink"/)) {
+            source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+        }
+
+        //add xml declaration
+        source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
+
+        //convert svg source to URI data scheme.
+        var url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source);
+        console.log(url);
     },
     update(thread_order) {
         var simpleLine = d3.line()
@@ -342,7 +368,7 @@ let graph = {
                 .attr("class", "string")
                 .style("stroke", "white")
                 .style("stroke-width", this.thread_diam)
-                .style("stroke", `rgba(${curr_thread.color.r},${curr_thread.color.g},${curr_thread.color.b},${this.thread_opacity})`)
+                .style("stroke", `rgba(${curr_thread.color.r}, ${curr_thread.color.g}, ${curr_thread.color.b}, ${this.thread_opacity})`)
                 .style("fill", "none");
         }
         console.log(this.threads);
@@ -363,7 +389,7 @@ let graph = {
                 ret[i] = null;
                 continue;
             };
-            let cache = this.line_cache[`${Math.min(i, nail_num)}|${Math.max(i, nail_num)}`];
+            let cache = this.line_cache[`${Math.min(i, nail_num)}| ${Math.max(i, nail_num)} `];
             if (cache) {
                 ret[i] = cache;
                 continue;
@@ -372,7 +398,7 @@ let graph = {
             let line = new Line(src, dst);
             line.compute_pixel_overlap(image, this.frame_bb);
             ret[i] = line;
-            this.line_cache[`${Math.min(i, nail_num)}|${Math.max(i, nail_num)}`] = line;
+            this.line_cache[`${Math.min(i, nail_num)}| ${Math.max(i, nail_num)} `] = line;
         }
         return ret;
     },
@@ -398,6 +424,7 @@ let graph = {
             clearTimeout(this.render_timeout_id);
             return;
         }
+        console.log(this.render_iter);
         let min_thread;
         let min_thread_index;
         let min_thread_weight = Infinity;
@@ -414,6 +441,7 @@ let graph = {
             clearTimeout(this.render_timeout_id);
             return
         }
+        console.log(min_thread.next_nail);
         min_thread.move_to_next_nail(this.image);
         this.thread_order.push(min_thread_index);
         if (min_thread.nail_order.length > 1) {
@@ -494,7 +522,7 @@ function render_image(url) {
 
         // Bunch of sloppy logic to resize the image / canvas to play nice with the frame bounding box.
         // The image is centered and scaled to fill the frame
-        const max_res = graph.frame_bb.width / graph.thread_diam;
+        const max_res = (graph.frame_bb.width / graph.thread_diam) / 2;
         console.log(max_res);
         let frame_ar = graph.frame_bb.width / graph.frame_bb.height;
         let img_ar = img.width / img.height;
@@ -536,7 +564,7 @@ if (urlParams.get("showUI") === "false") {
 let zoom = d3.zoom().on('zoom', handleZoom);
 
 function handleZoom(e) {
-    d3.selectAll('svg g')
+    d3.selectAll('svg > g')
         .attr('transform', e.transform);
 }
 
