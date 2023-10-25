@@ -86,3 +86,8 @@ canvas {
 .padding_large {
     height: 100px;
 }
+
+a {
+    text-decoration: none;
+    color: aqua;
+}

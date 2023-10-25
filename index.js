@@ -1,17 +1,6 @@
 /**
  * HELPERS
  */
-
-function invert(imgData) {
-    var d = imgData;
-    for (var i = 0; i < d.length; i += 4) {   //r,g,b,a
-        d[i] = 255 - d[i];
-        d[i + 1] = 255 - d[i + 1];
-        d[i + 2] = 255 - d[i + 2];
-    }
-    return imgData;
-}
-
 // https://gist.github.com/xposedbones/75ebaef3c10060a3ee3b246166caab56
 const constrain = (val, min, max) => (val < min ? min : (val > max ? max : val))
 const map = (value, x1, y1, x2, y2) => (value - x1) * (y2 - x2) / (y1 - x1) + x2;
@@ -26,50 +15,6 @@ class Color {
         this.b = b;
         this.g = g;
         this.a = a;
-    }
-}
-
-class ColorCMYK {
-    constructor(c, m, y, k) {
-        this.c = c;
-        this.m = m;
-        this.y = y;
-        this.k = k;
-
-        if (!k) {
-            this.from_rgb(c, m, y);
-        }
-    };
-
-    //https://www.standardabweichung.de/code/javascript/rgb-cmyk-conversion-javascript
-    from_rgb(r, g, b) {
-        var c = 1 - (r / 255);
-        var m = 1 - (g / 255);
-        var y = 1 - (b / 255);
-        var k = Math.min(c, Math.min(m, y));
-
-        c = (c - k) / (1 - k);
-        m = (m - k) / (1 - k);
-        y = (y - k) / (1 - k);
-
-        c = isNaN(c) ? 0 : c;
-        m = isNaN(m) ? 0 : m;
-        y = isNaN(y) ? 0 : y;
-        k = isNaN(k) ? 0 : k;
-
-        this.c = c;
-        this.m = m;
-        this.y = y;
-        this.k = k;
-    };
-
-    mix(color, per) {
-        return new ColorCMYK(
-            (this.c + color.c * per) / (1 + per),
-            (this.m + color.m * per) / (1 + per),
-            (this.y + color.y * per) / (1 + per),
-            (this.k + color.k * per) / (1 + per)
-        );
     }
 }
 
@@ -94,20 +39,6 @@ class Image {
     };
 }
 
-function sqr(x) { return x * x }
-function dist2(v, w) { return sqr(v.x - w.x) + sqr(v.y - w.y) }
-function distToSegmentSquared(p, v, w) {
-    var l2 = dist2(v, w);
-    if (l2 == 0) return dist2(p, v);
-    var t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
-    t = Math.max(0, Math.min(1, t));
-    return dist2(p, {
-        x: v.x + t * (w.x - v.x),
-        y: v.y + t * (w.y - v.y)
-    });
-}
-function distToSegment(p, v, w) { return Math.sqrt(distToSegmentSquared(p, v, w)); }
-
 class Line {
     constructor(start, end) {
         this.start = start;
@@ -130,18 +61,6 @@ class Line {
         ctx.stroke();
     }
 
-    // compute_pixel_overlap() {
-    //     for (var i = 0; i < graph.orig_ctx_data.length / 4; i++) {
-    //         let x = i % graph.img.width;
-    //         let y = Math.floor(i / graph.img.width);
-    //         let p = new Point(x, y);
-    //         let dist = distToSegment(p, this.start_adj, this.end_adj);
-    //         p.dist = dist;
-    //         if (dist < this.fuzz_rad) {
-    //             this.pixels.push(p);
-    //         }
-    //     }
-    // };
     compute_pixel_overlap() {
         this.pixels = [];
         // Bresenham algorithm taken from https://stackoverflow.com/a/4672319
@@ -169,48 +88,30 @@ class Line {
         }
     };
 
-    // returns the l1 norm of the difference
-    // get_line_diff(color) {
-    //     graph.scratch_ctx.globalCompositeOperation = "source-over";
-    //     graph.scratch_ctx.drawImage(graph.current_ctx.canvas, 0, 0, graph.img.width, graph.img.height);
-    //     this.draw(graph.scratch_ctx, color);
-    //     graph.scratch_ctx.globalCompositeOperation = "difference";
-    //     graph.scratch_ctx.drawImage(graph.orig_ctx.canvas, 0, 0, graph.img.width, graph.img.height);
-    //     graph.scratch_ctx.globalCompositeOperation = "source-over";
-    //     let sum = 0;
-    //     let scratch_data = graph.scratch_ctx.getImageData(0, 0, graph.img.width, graph.img.height).data;
-    //     for (var i = 0; i < scratch_data.length; i++) {
-    //         sum += scratch_data[i];
-    //     }
-    //     return sum;
-    // }
-
-    // returns the l1 norm of the difference
     get_line_diff(color) {
         let color_arr = [color.r, color.g, color.b, color.a];
         let total_diff = 0;
 
         for (var i = 0; i < this.pixels.length; i++) {
             let p = this.pixels[i];
-            // let fade = this.fuzz_rad / (1 + Math.pow(p.dist, 2));
             let ind = (p.x + p.y * graph.img.width) * 4;
+            let pixel_diff = 0;
             for (var j = 0; j < 4; j++) {
                 let new_c = color_arr[j] * this.fade + graph.current_ctx_data[ind + j] * (1 - this.fade);
                 let diff = Math.abs(graph.orig_ctx_data[ind + j] - new_c) - Math.abs(graph.current_ctx_data[ind + j] - graph.orig_ctx_data[ind + j]);
-                if (diff < 0) {
-                    total_diff += diff;
-                }
-                if (diff > 0) {
-                    total_diff += diff / 3;
-                }
+                pixel_diff += diff;
+            }
+            if (pixel_diff < 0) {
+                total_diff += pixel_diff;
+            }
+            if (pixel_diff > 0) {
+                total_diff += pixel_diff / 3;
             }
         }
         return Math.pow(total_diff / this.pixels.length, 3);
-        //return total_diff / this.pixels.length;
     }
 
     add_to_buffer(color) {
-        //graph.current_ctx.globalCompositeOperation = "multiply";
         this.draw(graph.current_ctx, color);
         graph.current_ctx_data = graph.current_ctx.getImageData(0, 0, graph.img.width, graph.img.height).data;
     }
@@ -236,7 +137,6 @@ class Thread {
     }
 
     get_next_nail_weight(image) {
-        let slack = 1000;
         if (this.next_valid) {
             return this.next_dist;
         }
@@ -255,7 +155,7 @@ class Thread {
                 }
             }
         });
-        if (min_dist >= 0) {
+        if (min_dist >= -10) {
             min_dist = Infinity;
         }
 
@@ -279,7 +179,6 @@ class Thread {
         this.nail_order.push(this.current_nail);
         this.next_valid = false;
         this.current_dist = this.next_dist;
-        console.log(this.current_nail);
         this.get_next_nail_weight(image);
     }
 
@@ -330,24 +229,24 @@ let graph = {
 
         this.svg.append("g");
 
-        // let frame_path = this.svg.select("g")
-        //     .append("circle")
-        //     .attr("r", this.radius)
-        //     .style("stroke", "#ffbe5700")
-        //     .style("stroke-width", 10)
-        //     .style("fill", "none")
-
-        let frame_path = this.svg.append("g")
-            .lower()
-            .append("rect")
-            .attr("class", "frame")
-            .attr("height", 19.25)
-            .attr("width", 15.25)
-            .attr("x", -this.radius)
-            .attr("y", -this.radius)
+        let frame_path = this.svg.select("g")
+            .append("circle")
+            .attr("r", this.radius)
             .style("stroke", "#ffbe5700")
-            .style("stroke-width", 0.5)
-            .style("fill", "grey");
+            .style("stroke-width", 10)
+            .style("fill", "grey")
+
+        // let frame_path = this.svg.append("g")
+        //     .lower()
+        //     .append("rect")
+        //     .attr("class", "frame")
+        //     .attr("height", 19.25)
+        //     .attr("width", 15.25)
+        //     .attr("x", -this.radius)
+        //     .attr("y", -this.radius)
+        //     .style("stroke", "#ffbe5700")
+        //     .style("stroke-width", 0.5)
+        //     .style("fill", "grey");
 
         this.frame_bb = frame_path.node().getBBox();
 
@@ -415,12 +314,6 @@ let graph = {
                 .style("stroke", `rgba(${curr_thread.color.r}, ${curr_thread.color.g}, ${curr_thread.color.b}, ${this.thread_opacity})`)
                 .style("fill", "none");
         }
-        this.svg.selectAll("g circle.nail").raise();
-        this.svg.selectAll()
-    },
-
-    get_settings() {
-
     },
 
     // Returns lines connecting the given nail to all other nails
@@ -448,12 +341,11 @@ let graph = {
     setup(img) {
         this.render_iter = 0;
         this.img = img;
-        let orig_canvas = document.createElement("canvas");
         this.orig_ctx = img.ctx;
         let scratch_canvas = document.createElement("canvas");
         scratch_canvas.width = img.width;
         scratch_canvas.height = img.height;
-        let current_canvas = document.getElementById("img_cnv");
+        let current_canvas = document.createElement("canvas");
         current_canvas.width = img.width;
         current_canvas.height = img.height;
         this.scratch_ctx = scratch_canvas.getContext('2d');
@@ -464,11 +356,9 @@ let graph = {
         this.current_ctx_data = this.current_ctx.getImageData(0, 0, this.img.width, this.img.height).data;
 
         this.threads = [
-            // new Thread(0, new Color(0, 255, 255, 255)),
-            // new Thread(0, new Color(255, 0, 255, 255)),
-            new Thread(0, new Color(55.0, 79.9, 100.0, 255)), // eye blue
-            new Thread(0, new Color(255, 205, 89, 255)), // Coat glow orange
-            new Thread(0, new Color(255, 189, 202)), // Light pink
+            new Thread(0, new Color(0, 255, 255, 255)),
+            new Thread(0, new Color(255, 0, 255, 255)),
+            new Thread(0, new Color(255, 255, 0, 255)),
             new Thread(0, new Color(0, 0, 0, 255)), // black
             new Thread(0, new Color(255, 255, 255, 255)) // white
         ];
@@ -483,7 +373,9 @@ let graph = {
         if (this.render_iter >= this.max_iter) {
             this.update(this.thread_order);
             clearTimeout(this.render_timeout_id);
+            console.log("Max iterations hit")
             console.log(this.threads);
+            this.svg.selectAll("g circle.nail").raise();
             return;
         }
         let min_thread;
@@ -498,10 +390,10 @@ let graph = {
             }
         }
         if (min_thread_weight === Infinity) {
-            //this.update(this.thread_order);
             clearTimeout(this.render_timeout_id);
             console.log("no good options");
             console.log(this.threads);
+            this.svg.selectAll("g circle.nail").raise();
             return;
         }
         min_thread.move_to_next_nail(this.image);
@@ -523,49 +415,23 @@ let graph = {
 graph.init();
 
 /**
+ * UI
+ */
+class Slider {
+    constructor(parent, callback, init_val, min, max) {
+        this.callback = callback;
+        this.val = init_val;
+        this.min = min;
+        this.max = max;
+        this.element = parent.appendChild("input");
+        this.label = parent.appendChild("label");
+    }
+}
+
+
+/**
 * IMAGE PROCESSING
  */
-const input = document.querySelector("input");
-
-//https://stackoverflow.com/a/37714937
-function contrastImage(imgData, contrast) {  //input range [-100..100]
-    var d = imgData.data;
-    contrast = (contrast / 100) + 1;  //convert to decimal & shift range: [0..2]
-    var intercept = 128 * (1 - contrast);
-    for (var i = 0; i < d.length; i += 4) {   //r,g,b,a
-        d[i] = d[i] * contrast + intercept;
-        d[i + 1] = d[i + 1] * contrast + intercept;
-        d[i + 2] = d[i + 2] * contrast + intercept;
-    }
-    return imgData;
-}
-
-function grayscale(imgData) {  //input range [-100..100]
-    var d = imgData.data;
-    for (var i = 0; i < d.length; i += 4) {   //r,g,b,a
-        let g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-        d[i] = g;
-        d[i + 1] = g;
-        d[i + 2] = g;
-    }
-    return imgData;
-}
-
-function render_buffer(buffer, canvas_id) {
-    let buf = buffer._data.flat();
-    let rgba = [];
-    for (var i = 0; i < buf.length; i++) {
-        for (var j = 0; j < 3; j++) { rgba.push(buf[i] * 255); }
-        rgba.push(255.0);
-    }
-    const canvas = document.getElementById(canvas_id);
-    const ctx = canvas.getContext('2d');
-    canvas.width = buffer.size()[1];
-    canvas.height = buffer.size()[0];
-    let dataImage = ctx.createImageData(canvas.width, canvas.height);
-    dataImage.data.set(rgba);
-    ctx.putImageData(dataImage, 0, 0);
-}
 
 function render_image(url) {
     var img = document.getElementById('snapshot');
@@ -577,9 +443,7 @@ function render_image(url) {
     else
         img.src = img.src;
     img.onload = function () {
-        // const canvas = document.createElement("canvas");
         const canvas = document.createElement('canvas');
-        //const canvas = document.getElementById("img_cnv");
         const ctx = canvas.getContext('2d');
 
         // Bunch of sloppy logic to resize the image / canvas to play nice with the frame bounding box.
@@ -599,8 +463,9 @@ function render_image(url) {
     }
 }
 
-//render_image();
+render_image();
 
+const input = document.querySelector("input");
 input.addEventListener("change", function () {
     if (this.files && this.files[0]) {
         render_image(URL.createObjectURL(this.files[0]));
@@ -615,6 +480,8 @@ input.addEventListener("change", function () {
 const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.get("showUI") === "false") {
     document.getElementById("ui").style.display = "none";
+    graph.svg.style("width", "100vw")
+        .style("left", "0px");
 }
 
 // Handle zooming and panning
