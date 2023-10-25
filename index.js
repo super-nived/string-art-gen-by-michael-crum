@@ -127,11 +127,8 @@ class Thread {
         this.next_nail;
         this.next_valid = false;
         this.next_line;
-        this.next_buffer;
-        this.prev_nail = -1;
 
-        this.read_head = 1;
-        this.read_prev = 0;
+        this.read_head = 0;
 
         this.prev_connections = [];
     }
@@ -174,7 +171,6 @@ class Thread {
             this.prev_connections[this.current_nail] = [];
         this.prev_connections[this.current_nail][this.next_nail] = true;
         this.next_line.add_to_buffer(this.color);
-        this.prev_nail = this.current_nail;
         this.current_nail = this.next_nail;
         this.nail_order.push(this.current_nail);
         this.next_valid = false;
@@ -182,16 +178,10 @@ class Thread {
         this.get_next_nail_weight(image);
     }
 
-    get_next_line() {
-        if (!this.rev_order)
-            this.rev_order = this.nail_order;
-        if (this.read_head >= this.nail_order.length)
-            return null;
-        let start = graph.nails_pos[this.rev_order[this.read_head]];
-        let end = graph.nails_pos[this.rev_order[this.read_prev]];
+    get_next_nail_num() {
+        let nail = this.nail_order[this.read_head];
         this.read_head++;
-        this.read_prev++;
-        return [[start.x, start.y], [end.x, end.y]];
+        return nail;
     }
 
     get_current_line() {
@@ -227,13 +217,14 @@ let graph = {
             .attr("width", "100vw")
             .attr("viewBox", [-this.width / 2, -this.height / 2, this.width, this.height])
         this.svg.append("g");
+        this.svg.attr("desc", "Created using michael-crum.com/string-art-gen");
 
         let frame_path = this.svg.select("g")
             .append("circle")
             .attr("r", this.radius)
             .style("stroke", "#ffbe5700")
             .style("stroke-width", 10)
-            .style("fill", "grey")
+            .style("fill", "none");
 
         // let frame_path = this.svg.append("g")
         //     .lower()
@@ -270,15 +261,6 @@ let graph = {
             .attr("r", this.nail_diam / 2)
             .attr("fill", "aqua");
 
-        // Handle zooming and panning
-        let zoom = d3.zoom().on('zoom', handleZoom);
-
-        function handleZoom(e) {
-            d3.selectAll('svg > g')
-                .attr('transform', e.transform);
-        }
-
-        d3.select('svg').call(zoom);
         nails.append("text")
             .style("fill", "black")
             .style("stroke-width", `${this.nail_diam / 100}`)
@@ -288,9 +270,21 @@ let graph = {
             .attr("font-size", `${this.nail_diam}px`)
             .attr("text-anchor", "middle")
             .text(function (d, i) { return i });
-        this.update_frame_link();
+
+        this.get_frame_url();
+        frame_path.style("fill", "grey");
+
+        // Handle zooming and panning
+        let zoom = d3.zoom().on('zoom', handleZoom);
+
+        function handleZoom(e) {
+            d3.selectAll('svg > g')
+                .attr('transform', e.transform);
+        }
+
+        d3.select('svg').call(zoom);
     },
-    update_frame_link() {
+    get_frame_url() {
         var serializer = new XMLSerializer();
         var source = serializer.serializeToString(this.svg.node());
 
@@ -306,8 +300,40 @@ let graph = {
         source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
 
         //convert svg source to URI data scheme.
-        var url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source);
-        document.getElementById("frame_link").setAttribute("href", `${url}`);
+        this.frame_url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source);
+    },
+    download_frame() {
+        var element = document.createElement('a');
+        element.setAttribute("href", `${this.frame_url}`);
+        element.setAttribute('download', "frame.svg");
+        element.style.display = 'none';
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
+    },
+    download_nail_seq() {
+        let output = `Generated using https://michael-crum.com/string-art-gen/\n${this.render_iter} connections in total\n\n`;
+        let len = this.thread_order.length;
+        for (var i = 0; i < len; i++) {
+            let thread = this.threads[this.thread_order[i]];
+            if (i === 0 || this.thread_order[i - 1] !== this.thread_order[i])
+                output += `\nThread: [${thread.color.r}, ${thread.color.g}, ${thread.color.b}]\n`;
+
+            output += thread.get_next_nail_num();
+            output += "\n";
+        }
+        for (var i = 0; i < this.threads.length; i++) {
+            this.threads.read_head = 0;
+        }
+        var url = "data:text/plain;charset=utf-8," + encodeURIComponent(output);
+        var element = document.createElement('a');
+        element.setAttribute("href", `${url}`);
+        element.setAttribute('download', "nail_seq.txt");
+        element.style.display = 'none';
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
+
     },
     // Returns lines connecting the given nail to all other nails
     get_connections(nail_num) {
@@ -452,7 +478,7 @@ class Button extends UIElement {
         super(desc, name, parent, callback, false);
         this.element = document.createElement("button");
         this.element.id = name;
-        this.element.innerHTML = `< b > ${this.desc}</b > `;
+        this.element.innerHTML = `<b> ${this.desc}</b>`;
         this.element.addEventListener("click", callback);
         parent.appendChild(this.element);
     }
@@ -468,12 +494,28 @@ class TextEntry extends UIElement {
     }
 }
 
+let download = document.getElementById("download");
 let basic_options = document.getElementById("basic");
 let advanced_options = document.getElementById("advanced");
 let controls = document.getElementById("controls");
 
 let GUI = {
     init() {
+        // Download = 
+        this.nail_seq_download = new Button(
+            "Nail sequence",
+            "nail_sequence",
+            download,
+            () => {
+                graph.download_nail_seq();
+            });
+        this.frame_download = new Button(
+            "Frame with numbering",
+            "frame_download",
+            download,
+            () => {
+                graph.download_frame();
+            });
         // Basic
         this.regenerate = new Button(
             "Regenerate",
@@ -496,7 +538,7 @@ let GUI = {
             "Max # of connections:",
             "num_connections",
             basic_options,
-            7500,
+            10000,
             100, 15000,
             (e) => {
                 graph.max_iter = e.target.value;
@@ -508,7 +550,7 @@ let GUI = {
             "Frame path (SVG):",
             "num_connections",
             advanced_options,
-            "test",
+            "WIP, come back soon :)",
             (e) => {
 
             });
