@@ -105,7 +105,7 @@ class Line {
                 total_diff += pixel_diff;
             }
             if (pixel_diff > 0) {
-                total_diff += pixel_diff / 3;
+                total_diff += pixel_diff / 5;
             }
         }
         return Math.pow(total_diff / this.pixels.length, 3);
@@ -155,7 +155,7 @@ class Thread {
                 }
             }
         });
-        if (min_dist >= -10) {
+        if (min_dist >= 0) {
             min_dist = Infinity;
         }
 
@@ -209,10 +209,8 @@ let graph = {
         this.width = 30;
         this.height = this.width;
         this.radius = this.width / 3;
-        if (!this.max_iter)
-            this.max_iter = 10000;
-        if (!this.num_nails)
-            this.num_nails = 300;
+        this.max_iter = GUI.num_connections.element.value;
+        this.num_nails = GUI.num_nails.element.value;
 
         this.downscale_factor = 4;
 
@@ -225,10 +223,9 @@ let graph = {
         this.thread_opacity = 1.0;
         this.thread_order = [];
 
-        this.svg = d3.select("body").append("svg")
+        this.svg = d3.select("body").insert("svg", ":first-child")
             .attr("width", "100vw")
             .attr("viewBox", [-this.width / 2, -this.height / 2, this.width, this.height])
-
         this.svg.append("g");
 
         let frame_path = this.svg.select("g")
@@ -282,32 +279,35 @@ let graph = {
         }
 
         d3.select('svg').call(zoom);
-        // nails.append("text")
-        //     .style("fill", "black")
-        //     .style("stroke-width", `${this.nail_diam / 100}`)
-        //     .style("stroke", "white")
-        //     .attr("dx", "0")
-        //     .attr("dy", `${(this.nail_diam / 2) * 0.7}`)
-        //     .attr("font-size", `${this.nail_diam}px`)
-        //     .attr("text-anchor", "middle")
-        //     .text(function (d, i) { return i });
-        // var serializer = new XMLSerializer();
-        // var source = serializer.serializeToString(this.svg.node());
+        nails.append("text")
+            .style("fill", "black")
+            .style("stroke-width", `${this.nail_diam / 100}`)
+            .style("stroke", "white")
+            .attr("dx", "0")
+            .attr("dy", `${(this.nail_diam / 2) * 0.7}`)
+            .attr("font-size", `${this.nail_diam}px`)
+            .attr("text-anchor", "middle")
+            .text(function (d, i) { return i });
+        this.update_frame_link();
+    },
+    update_frame_link() {
+        var serializer = new XMLSerializer();
+        var source = serializer.serializeToString(this.svg.node());
 
-        // //add name spaces.
-        // if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
-        //     source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
-        // }
-        // if (!source.match(/^<svg[^>]+"http\:\/\/www\.w3\.org\/1999\/xlink"/)) {
-        //     source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
-        // }
+        //add name spaces.
+        if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+            source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+        }
+        if (!source.match(/^<svg[^>]+"http\:\/\/www\.w3\.org\/1999\/xlink"/)) {
+            source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+        }
 
-        // //add xml declaration
-        // source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
+        //add xml declaration
+        source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
 
-        // //convert svg source to URI data scheme.
-        // var url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source);
-        // console.log(url);
+        //convert svg source to URI data scheme.
+        var url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source);
+        document.getElementById("frame_link").setAttribute("href", `${url}`);
     },
     // Returns lines connecting the given nail to all other nails
     get_connections(nail_num) {
@@ -349,9 +349,9 @@ let graph = {
         this.current_ctx_data = this.current_ctx.getImageData(0, 0, this.img.width, this.img.height).data;
 
         this.threads = [
-            new Thread(0, new Color(0, 255, 255, 255)),
-            new Thread(0, new Color(255, 0, 255, 255)),
-            new Thread(0, new Color(255, 255, 0, 255)),
+            new Thread(0, new Color(0, 255, 255, 255)), // C
+            new Thread(0, new Color(255, 0, 255, 255)), // Y
+            new Thread(0, new Color(255, 255, 0, 255)), // M
             new Thread(0, new Color(0, 0, 0, 255)), // black
             new Thread(0, new Color(255, 255, 255, 255)) // white
         ];
@@ -364,11 +364,7 @@ let graph = {
     // Generates a nail and color order from pixel data
     parse_image() {
         if (this.render_iter >= this.max_iter) {
-            this.update(this.thread_order);
-            clearTimeout(this.render_timeout_id);
-            console.log("Max iterations hit")
-            console.log(this.threads);
-            this.svg.selectAll("g circle.nail").raise();
+            this.clean();
             return;
         }
         let min_thread;
@@ -383,12 +379,10 @@ let graph = {
             }
         }
         if (min_thread_weight === Infinity) {
-            clearTimeout(this.render_timeout_id);
-            console.log("no good options");
-            console.log(this.threads);
-            this.svg.selectAll("g circle.nail").raise();
+            this.clean();
             return;
         }
+        GUI.regenerate.element.innerHTML = `<b>Generating... ${(((this.render_iter) / this.max_iter) * 100).toFixed(2)}</b>%`;
         min_thread.move_to_next_nail(this.image);
         this.thread_order.push(min_thread_index);
         if (min_thread.nail_order.length > 1) {
@@ -401,8 +395,16 @@ let graph = {
                 .style("stroke", `rgba(${min_thread.color.r},${min_thread.color.g},${min_thread.color.b},${this.thread_opacity})`)
                 .style("fill", "none");
         }
+
         this.render_iter++;
         this.render_timeout_id = setTimeout(() => { this.parse_image() }, 0);
+    },
+
+    clean() {
+        GUI.regenerate.element.innerHTML = "<b>Regenerate</b>";
+        clearTimeout(this.render_timeout_id);
+        console.log(this.threads);
+        this.svg.selectAll("g circle.nail").raise();
     }
 };
 
@@ -450,7 +452,7 @@ class Button extends UIElement {
         super(desc, name, parent, callback, false);
         this.element = document.createElement("button");
         this.element.id = name;
-        this.element.innerHTML = `<b>${this.desc}</b>`;
+        this.element.innerHTML = `< b > ${this.desc}</b > `;
         this.element.addEventListener("click", callback);
         parent.appendChild(this.element);
     }
@@ -494,8 +496,8 @@ let GUI = {
             "Max # of connections:",
             "num_connections",
             basic_options,
-            10000,
-            1, 20000,
+            7500,
+            100, 15000,
             (e) => {
                 graph.max_iter = e.target.value;
                 render_image();
@@ -508,7 +510,6 @@ let GUI = {
             advanced_options,
             "test",
             (e) => {
-                graph.max_iter = e.target.value;
 
             });
     }

@@ -11,12 +11,17 @@
 <body>
     <div id="ui">
         <h1>String Art Generator</h1>
-        <em><a href="michael-crum.com">michael-crum.com</a></em>
+        <p><em><a href="michael-crum.com">michael-crum.com</a></em></p>
         <p><em>Click and drag to move, scroll to zoom.</em></p>
         <img id="snapshot" src="example.png">
         <input type="file" accept="image/jpeg, image/png, image/jpg">
         <br>
         <div id="controls"></div>
+        <details open>
+            <summary>Downloads</summary>
+            <a id="sequence_link" download><button>Nail sequence</button></a>
+            <a id="frame_link" download><button id="frame_link">Frame with numbering</button></a>
+        </details>
         <details id="basic" open>
             <summary>Basic Options</summary>
         </details>
