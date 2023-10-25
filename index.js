@@ -209,11 +209,13 @@ let graph = {
         this.width = 30;
         this.height = this.width;
         this.radius = this.width / 3;
-        this.max_iter = 10000;
+        if (!this.max_iter)
+            this.max_iter = 10000;
+        if (!this.num_nails)
+            this.num_nails = 300;
 
         this.downscale_factor = 4;
 
-        this.num_nails = 300;
         this.thread_diam = 0.01; // thread width in inches
         this.nail_diam = 0.1;
         this.nails_pos = [];
@@ -270,6 +272,16 @@ let graph = {
             .attr("class", "nail")
             .attr("r", this.nail_diam / 2)
             .attr("fill", "aqua");
+
+        // Handle zooming and panning
+        let zoom = d3.zoom().on('zoom', handleZoom);
+
+        function handleZoom(e) {
+            d3.selectAll('svg > g')
+                .attr('transform', e.transform);
+        }
+
+        d3.select('svg').call(zoom);
         // nails.append("text")
         //     .style("fill", "black")
         //     .style("stroke-width", `${this.nail_diam / 100}`)
@@ -279,45 +291,26 @@ let graph = {
         //     .attr("font-size", `${this.nail_diam}px`)
         //     .attr("text-anchor", "middle")
         //     .text(function (d, i) { return i });
-        var serializer = new XMLSerializer();
-        var source = serializer.serializeToString(this.svg.node());
+        // var serializer = new XMLSerializer();
+        // var source = serializer.serializeToString(this.svg.node());
 
-        //add name spaces.
-        if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
-            source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
-        }
-        if (!source.match(/^<svg[^>]+"http\:\/\/www\.w3\.org\/1999\/xlink"/)) {
-            source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
-        }
+        // //add name spaces.
+        // if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+        //     source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+        // }
+        // if (!source.match(/^<svg[^>]+"http\:\/\/www\.w3\.org\/1999\/xlink"/)) {
+        //     source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+        // }
 
-        //add xml declaration
-        source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
+        // //add xml declaration
+        // source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
 
-        //convert svg source to URI data scheme.
-        var url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source);
-        console.log(url);
+        // //convert svg source to URI data scheme.
+        // var url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source);
+        // console.log(url);
     },
-    update(thread_order) {
-        var simpleLine = d3.line()
-        this.svg.select("g")
-            .selectAll(".string")
-            .remove();
-        for (var i = 0; i < thread_order.length; i++) {
-            let curr_thread = this.threads[thread_order[i]];
-            let next_line = curr_thread.get_next_line();
-            this.svg.select("g")
-                .append('path')
-                .attr("d", simpleLine(next_line))
-                .attr("class", "string")
-                .style("stroke", "white")
-                .style("stroke-width", this.thread_diam)
-                .style("stroke", `rgba(${curr_thread.color.r}, ${curr_thread.color.g}, ${curr_thread.color.b}, ${this.thread_opacity})`)
-                .style("fill", "none");
-        }
-    },
-
     // Returns lines connecting the given nail to all other nails
-    get_connections(nail_num, image) {
+    get_connections(nail_num) {
         let ret = [];
         let src = this.nails_pos[nail_num];
         for (var i = 0; i < this.num_nails; i++) {
@@ -412,28 +405,128 @@ let graph = {
         this.render_timeout_id = setTimeout(() => { this.parse_image() }, 0);
     }
 };
-graph.init();
 
 /**
  * UI
  */
-class Slider {
-    constructor(parent, callback, init_val, min, max) {
+class UIElement {
+    constructor(desc, name, parent, callback, label) {
+        this.desc = desc;
+        this.name = name;
+        this.parent = parent;
         this.callback = callback;
-        this.val = init_val;
-        this.min = min;
-        this.max = max;
-        this.element = parent.appendChild("input");
-        this.label = parent.appendChild("label");
+        if (label) {
+            this.label = document.createElement("label");
+            this.label.for = name;
+            this.label.innerHTML = desc;
+            parent.appendChild(this.label);
+        }
     }
 }
 
+class Slider extends UIElement {
+    constructor(desc, name, parent, init_val, min, max, callback) {
+        super(desc, name, parent, callback, true);
+        this.val = init_val;
+        this.min = min;
+        this.max = max;
+        this.disp = document.createElement("p");
+        this.disp.innerHTML = this.val;
+        parent.appendChild(this.disp);
+        this.element = document.createElement("input");
+        this.element.id = name;
+        this.element.type = "range";
+        this.element.classList.add("slider");
+        this.element.min = min;
+        this.element.max = max;
+        this.element.value = this.val;
+        this.element.addEventListener("input", (e) => { callback(e); this.disp.innerHTML = e.target.value; });
+        parent.appendChild(this.element);
+    }
+}
+
+class Button extends UIElement {
+    constructor(desc, name, parent, callback) {
+        super(desc, name, parent, callback, false);
+        this.element = document.createElement("button");
+        this.element.id = name;
+        this.element.innerHTML = `<b>${this.desc}</b>`;
+        this.element.addEventListener("click", callback);
+        parent.appendChild(this.element);
+    }
+}
+
+class TextEntry extends UIElement {
+    constructor(desc, name, parent, value, callback) {
+        super(desc, name, parent, callback, true);
+        this.element = document.createElement("input");
+        this.element.type = "text";
+        this.element.value = value;
+        parent.appendChild(this.element);
+    }
+}
+
+let basic_options = document.getElementById("basic");
+let advanced_options = document.getElementById("advanced");
+let controls = document.getElementById("controls");
+
+let GUI = {
+    init() {
+        // Basic
+        this.regenerate = new Button(
+            "Regenerate",
+            "regenerate",
+            controls,
+            () => {
+                render_image()
+            });
+        this.num_nails = new Slider(
+            "Number of nails:",
+            "num_nails",
+            basic_options,
+            300,
+            10, 2000,
+            (e) => {
+                graph.num_nails = e.target.value;
+                render_image();
+            });
+        this.num_connections = new Slider(
+            "Max # of connections:",
+            "num_connections",
+            basic_options,
+            10000,
+            1, 20000,
+            (e) => {
+                graph.max_iter = e.target.value;
+                render_image();
+            });
+
+        // Advanced 
+        this.shape_entry = new TextEntry(
+            "Frame path (SVG):",
+            "num_connections",
+            advanced_options,
+            "test",
+            (e) => {
+                graph.max_iter = e.target.value;
+
+            });
+    }
+}
+
+GUI.init();
 
 /**
 * IMAGE PROCESSING
  */
 
 function render_image(url) {
+    if (graph.svg) {
+        graph.svg.selectAll("*").remove();
+        graph.svg.remove();
+        clearTimeout(graph.render_timeout_id);
+    }
+    graph.init();
     var img = document.getElementById('snapshot');
     img.onload = () => {
         if (url) URL.revokeObjectURL(img.src);
@@ -483,13 +576,3 @@ if (urlParams.get("showUI") === "false") {
     graph.svg.style("width", "100vw")
         .style("left", "0px");
 }
-
-// Handle zooming and panning
-let zoom = d3.zoom().on('zoom', handleZoom);
-
-function handleZoom(e) {
-    d3.selectAll('svg > g')
-        .attr('transform', e.transform);
-}
-
-d3.select('svg').call(zoom);

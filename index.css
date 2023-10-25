@@ -54,6 +54,10 @@ svg {
     width: 70vw;
 }
 
+p {
+    margin: 0px;
+}
+
 img {
     display: inline-block;
     /* max-width: 10vw;
@@ -79,8 +83,23 @@ canvas {
 
 #regenerate {
     height: 60px;
-    background: rgb(190, 255, 255);
+}
+
+button {
+    background: none;
+    border: 2px solid cyan;
+    color: cyan;
+}
+
+button:hover {
+    background: cyan;
     border: none;
+    color: black;
+}
+
+label {
+    display: block;
+    margin: none;
 }
 
 .padding_large {
