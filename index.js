@@ -236,7 +236,7 @@ let graph = {
         //     .attr("y", -this.radius)
         //     .style("stroke", "#ffbe5700")
         //     .style("stroke-width", 0.5)
-        //     .style("fill", "grey");
+        //     .style("fill", "none");
 
         this.frame_bb = frame_path.node().getBBox();
 
@@ -375,9 +375,9 @@ let graph = {
         this.current_ctx_data = this.current_ctx.getImageData(0, 0, this.img.width, this.img.height).data;
 
         this.threads = [
-            new Thread(0, new Color(0, 255, 255, 255)), // C
-            new Thread(0, new Color(255, 0, 255, 255)), // Y
-            new Thread(0, new Color(255, 255, 0, 255)), // M
+            // new Thread(0, new Color(0, 255, 255, 255)), // C
+            // new Thread(0, new Color(255, 0, 255, 255)), // Y
+            // new Thread(0, new Color(255, 255, 0, 255)), // M
             new Thread(0, new Color(0, 0, 0, 255)), // black
             new Thread(0, new Color(255, 255, 255, 255)) // white
         ];
